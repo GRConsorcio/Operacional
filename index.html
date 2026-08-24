@@ -838,10 +838,14 @@ function abrirFinalizar(){
   document.getElementById('ov-finalizar').classList.add('on');
 }
 async function confirmarFinalizar(){
+  // MUDANÇA (a pedido do GR): checklist incompleto não bloqueia mais o
+  // Finalizar — em vez disso, exige que a Observação seja preenchida,
+  // explicando por que ficou faltando algo.
   const checklist = EXEC_ATUAL.atividades?.checklist || [];
-  if(checklist.length){
-    const marcados = Array.from(document.querySelectorAll('.fin-check-dyn')).filter(c=>c.checked).length;
-    if(marcados < checklist.length){ toast('Marque todos os itens do checklist antes de finalizar.'); return; }
+  const checklistCompleto = !checklist.length || Array.from(document.querySelectorAll('.fin-check-dyn')).filter(c=>c.checked).length === checklist.length;
+  if(!checklistCompleto && !document.getElementById('fin-obs').value.trim()){
+    toast('Checklist incompleto — preencha a Observação explicando o que falta.');
+    return;
   }
   const resultado = {};
   document.querySelectorAll('.fin-campo-dyn').forEach(inp=>{ resultado[inp.dataset.campo] = inp.value; });
