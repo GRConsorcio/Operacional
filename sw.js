@@ -1,4 +1,4 @@
-const CACHE = 'operacional-v9';
+const CACHE = 'operacional-v10';
 const SHELL = ['./', './index.html', './manifest.json', './icon.svg?v=4'];
 
 self.addEventListener('install', (e) => {

@@ -147,6 +147,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .tl-txt{font-size:13px}
 .tl-txt b{font-weight:600}
 .desvio-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#fff;background:var(--red);padding:3px 8px;border-radius:99px;margin-top:6px}
+.prazo-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;color:#fff;background:var(--red);padding:5px 10px;border-radius:8px;margin-top:8px;animation:prazoPisca 1s ease-in-out infinite}
+@keyframes prazoPisca{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){ .prazo-badge{animation:none} }
 
 .toast{position:fixed;bottom:20px;right:20px;background:var(--text);color:var(--bg);padding:11px 16px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);z-index:200;opacity:0;transform:translateY(8px);transition:.2s}
 .toast.on{opacity:1;transform:translateY(0)}
@@ -248,7 +251,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <div class="setor-tab on" onclick="demTab('recebidas',this)">Recebidas pelo meu setor</div>
             <div class="setor-tab" onclick="demTab('enviadas',this)">Enviadas por mim</div>
           </div>
-          <button class="btn btn-primary" onclick="abrirNovaSolicitacao()">+ Nova solicitação</button>
+          <!-- BUGFIX/PEDIDO (2026-08-24): "+ Nova solicitação" removido a pedido do GR —
+               por enquanto abrir demanda continua exclusivamente pelo DemandasGR; o
+               Operacional só recebe/trabalha o que já foi sincronizado de lá. O modal
+               (#ov-solicitacao) e as funções JS continuam intactos, só sem esse botão
+               de entrada — reversível facilmente se voltar a fazer sentido. -->
         </div>
         <div class="card">
           <table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Para</th><th>Responsável</th><th>Prioridade</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody id="dem-tbody"></tbody></table>
@@ -494,7 +501,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="fld"><label>Setor</label><select id="at-setor" style="width:100%"></select></div>
       <div class="fld"><label>Nome da atividade</label><input id="at-nome"></div>
       <div class="fld"><label>Tempo padrão (minutos, opcional)</label><input id="at-tempo" type="number"></div>
-      <div class="fld"><label>SLA / prazo padrão (horas, opcional)</label><input id="at-sla" type="number"></div>
+      <div class="fld"><label>Prazo para completar (horas, opcional)</label><input id="at-sla" type="number" placeholder="Ex: 4 — passar disso pisca aviso de prazo estourado pra quem estiver executando"></div>
       <div class="fld"><label>Campos do resultado (separados por vírgula)</label><input id="at-campos" placeholder="Ex: Quantidade, Valor total, Houve divergência?"></div>
       <div class="fld"><label>Qual desses campos é a quantidade produzida? (opcional, pro cálculo de produção/hora)</label><input id="at-campo-qtd" placeholder="Deve ser igual a um dos campos acima, ex: Quantidade"></div>
       <div class="fld"><label>Meta de retrabalho (%, opcional)</label><input id="at-meta-retrabalho" type="number" step="0.1" placeholder="Ex: 3"></div>
@@ -766,7 +773,7 @@ function toast(msg){
 
 /* ═══════════ EXECUÇÃO ATUAL / TIMER ═══════════ */
 async function carregarExecucaoAtual(){
-  const { data } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,setor_id,checklist,campos_resultado,requer_aprovacao)')
+  const { data } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)')
     .eq('usuario_id', ME.id).in('status',['em_andamento','pausado','devolvida']).order('inicio',{ascending:false}).limit(1).maybeSingle();
   EXEC_ATUAL = data || null;
   if(EXEC_ATUAL && EXEC_ATUAL.status==='pausado'){
@@ -785,6 +792,7 @@ function fmtTempo(seg){
 }
 
 let ULTIMO_ALERTA_DESVIO = 0;
+let ULTIMO_ALERTA_PRAZO = 0;
 function tickTimer(){
   if(!EXEC_ATUAL) return;
   const el = document.getElementById('timer-relogio');
@@ -811,6 +819,22 @@ function tickTimer(){
       }
     } else if(badge){ badge.innerHTML = ''; }
   } else if(badge){ badge.innerHTML = ''; }
+
+  // Prazo (SLA em horas, cadastrado por atividade em Administração) — diferente
+  // do "tempo padrão" acima (que é só um alerta de atenção), passar do prazo é
+  // um estouro de verdade: badge pisca pra todo mundo, independente do cargo.
+  const prazoBadge = document.getElementById('timer-prazo-badge');
+  const slaHoras = EXEC_ATUAL.atividades?.sla_horas;
+  if(slaHoras && (EXEC_ATUAL.status==='em_andamento'||EXEC_ATUAL.status==='pausado')){
+    const horasDecorridas = decorridoSeg/3600;
+    if(horasDecorridas >= slaHoras){
+      if(prazoBadge) prazoBadge.innerHTML = `<span class="prazo-badge">${ico('alert',13)} PRAZO ESTOURADO</span>`;
+      if(Date.now()-ULTIMO_ALERTA_PRAZO > 5*60*1000){
+        ULTIMO_ALERTA_PRAZO = Date.now();
+        notificar('Prazo estourado', (EXEC_ATUAL.atividades?.nome||'Atividade')+' passou do prazo de '+slaHoras+'h.');
+      }
+    } else if(prazoBadge){ prazoBadge.innerHTML = ''; }
+  } else if(prazoBadge){ prazoBadge.innerHTML = ''; }
 }
 
 function renderTimerCard(){
@@ -818,8 +842,9 @@ function renderTimerCard(){
   const semCard = document.getElementById('sem-atividade-card');
   if(!EXEC_ATUAL){ slot.innerHTML=''; semCard.classList.remove('hidden'); return; }
   semCard.classList.add('hidden');
-  const nome = EXEC_ATUAL.atividades?.nome || (EXEC_ATUAL.tipo==='extraordinario' ? 'Atividade extraordinária' : 'Atividade');
+  const nome = EXEC_ATUAL.atividades?.nome || (EXEC_ATUAL.tipo==='extraordinario' ? 'Atividade extraordinária' : EXEC_ATUAL.tipo==='estrategico' ? 'Atividade estratégica' : 'Atividade');
   const padrao = EXEC_ATUAL.atividades?.tempo_padrao_min;
+  const sla = EXEC_ATUAL.atividades?.sla_horas;
 
   if(EXEC_ATUAL.status==='devolvida'){
     slot.innerHTML = `<div class="timer-card" style="background:linear-gradient(135deg,var(--red),var(--red))">
@@ -838,8 +863,9 @@ function renderTimerCard(){
     <div class="lbl">${EXEC_ATUAL.status==='pausado'?ico('pause',12)+' PAUSADO':ico('play',12)+' EM ANDAMENTO'}</div>
     <div class="nome">${nome}</div>
     <div class="relogio" id="timer-relogio">00:00:00</div>
-    <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}</div>
+    <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}${sla?(' · Prazo: '+sla+'h'):''}</div>
     <div id="timer-desvio-badge"></div>
+    <div id="timer-prazo-badge"></div>
     <div class="actions">
       ${EXEC_ATUAL.status==='pausado'
         ? `<button class="btn" onclick="retomar()">${ico('play',15)} Retomar</button>`
@@ -897,7 +923,7 @@ function renderAtivList(){
 
 async function iniciarAtividade(atividadeId){
   if(EXEC_ATUAL){ toast('Finalize a atividade atual antes de iniciar outra.'); return; }
-  const { data, error } = await Q.from('execucoes').insert({usuario_id:ME.id, atividade_id:atividadeId, tipo:'planejado'}).select('*, atividades(nome,tempo_padrao_min,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
+  const { data, error } = await Q.from('execucoes').insert({usuario_id:ME.id, atividade_id:atividadeId, tipo:'planejado'}).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
   if(error){ toast('Erro: '+error.message); return; }
   EXEC_ATUAL = data; PAUSA_ATUAL = null;
   closeOV('ov-nova'); renderTimerCard();
@@ -912,7 +938,7 @@ async function iniciarExtraordinaria(){
     extra_quem_solicitou: document.getElementById('ext-quem').value.trim(),
     extra_setor_origem: document.getElementById('ext-setor-origem').value.trim()
   };
-  const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
+  const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
   if(error){ toast('Erro: '+error.message); return; }
   EXEC_ATUAL = data; PAUSA_ATUAL = null;
   closeOV('ov-nova'); renderTimerCard();
@@ -1024,8 +1050,10 @@ async function renderDemandasSetorHome(){
     const cor = s.prioridade==='urgente'?'pill-red':s.prioridade==='alta'?'pill-gold':'pill-blue';
     const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
     const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
+    const horasDecorridas = (Date.now()-new Date(s.criado_em).getTime())/3600000;
+    const prazoTxt = horasDecorridas >= s.prazo_horas ? `<span class="prazo-badge" style="margin-top:0;padding:3px 8px;font-size:10.5px">${s.prazo_horas}h ESTOURADO</span>` : `${s.prazo_horas}h`;
     return `<tr><td>${assuntoLinha}</td><td>${solicitante} (${s.origem?.nome||'—'})</td>
-      <td><span class="pill ${cor}">${s.prioridade}</span></td><td>${s.prazo_horas}h</td>
+      <td><span class="pill ${cor}">${s.prioridade}</span></td><td>${prazoTxt}</td>
       <td><button class="btn btn-primary" style="padding:6px 10px" onclick="iniciarSolicitacaoComoAtividade('${s.id}')">${ico('play',13)} Iniciar</button></td></tr>`;
   }).join('');
 }
@@ -1042,7 +1070,7 @@ async function iniciarSolicitacaoComoAtividade(id){
     extra_quem_solicitou: sol.usuarios?.nome || sol.solicitante_nome_externo || '—',
     extra_setor_origem: sol.origem?.nome||'—'
   };
-  const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
+  const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
   if(error){ toast('Erro: '+error.message); return; }
   EXEC_ATUAL = data; PAUSA_ATUAL = null;
   renderTimerCard(); renderDemandasSetorHome();
@@ -1309,9 +1337,12 @@ async function renderDemandas(){
     const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
     const podeCancelar = s.status!=='cancelada' && s.status!=='concluida' && DEM_ABA==='enviadas';
     const podeApagar = isAdmin() && s.status==='aberta';
+    const emAberto = s.status==='aberta' || s.status==='em_andamento';
+    const horasDecorridas = (Date.now()-new Date(s.criado_em).getTime())/3600000;
+    const prazoTxt = (emAberto && horasDecorridas>=s.prazo_horas) ? `<span class="prazo-badge" style="margin-top:0;padding:3px 8px;font-size:10.5px">${s.prazo_horas}h ESTOURADO</span>` : `${s.prazo_horas}h`;
     return `<tr>
     <td>${assuntoLinha}${origemTag}</td><td>${solicitante} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td><td>${s.responsavel?.nome||'—'}</td>
-    <td>${s.prioridade}</td><td>${s.prazo_horas}h</td><td>${statusPill(s.status)}</td>
+    <td>${s.prioridade}</td><td>${prazoTxt}</td><td>${statusPill(s.status)}</td>
     <td style="white-space:nowrap">
       ${podeCancelar?`<button class="btn btn-muted" style="padding:5px 9px" onclick="cancelarSolicitacao('${s.id}')">Cancelar</button>`:''}
       ${podeApagar?`<button class="btn btn-danger" style="padding:5px 9px" onclick="deleteSolicitacao('${s.id}','${(s.assunto||'').replace(/'/g,"\\'")}')">Apagar</button>`:''}
@@ -1824,7 +1855,7 @@ async function renderAdmAtividades(){
     if(!dessesetor.length) return '';
     return `<div class="setor-grupo">
       <div class="setor-grupo-head">${s.nome} <span class="cnt">(${dessesetor.length})</span></div>
-      <table class="tbl"><thead><tr><th>Atividade</th><th>Tempo padrão</th><th>SLA</th><th>Status</th><th></th></tr></thead><tbody>
+      <table class="tbl"><thead><tr><th>Atividade</th><th>Tempo padrão</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody>
         ${dessesetor.map(a=>`<tr>
           <td>${a.nome}${a.requer_aprovacao?' <span class="pill pill-gold" style="margin-left:4px">aprovação</span>':''}${(a.checklist||[]).length?' <span class="pill pill-blue" style="margin-left:4px">checklist</span>':''}</td>
           <td>${a.tempo_padrao_min?a.tempo_padrao_min+' min':'—'}</td>
