@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Operacional — GR Consórcio</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
 <meta name="theme-color" content="#1E88C7">
 <script>
 // Aplica o tema ANTES do primeiro paint (evita flash) — mesmo padrão do Portal GR.
@@ -21,7 +21,11 @@
   --text:#1B2430; --muted:#6B7785;
   --accent:#1E88C7; --accent-dim:#EAF3FC; --accent-text:#FFFFFF;
   --green:#2FA84F; --red:#D64545; --gold:#C98A1F;
-  --shadow:0 1px 3px rgba(20,30,45,.08), 0 1px 2px rgba(20,30,45,.06);
+  --shadow:0 1px 2px rgba(20,30,45,.05), 0 4px 10px rgba(20,30,45,.06), 0 14px 32px -10px rgba(20,30,45,.12);
+  --shadow-lg:0 2px 4px rgba(20,30,45,.06), 0 10px 24px rgba(20,30,45,.08), 0 24px 56px -14px rgba(20,30,45,.18);
+  --card-top-highlight:inset 0 1px 0 rgba(255,255,255,.6);
+  --texture:radial-gradient(ellipse at top,#FBFCFE 0%,#F4F7FB 55%,#EFF3F9 100%);
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.1 0 0 0 0 0.13 0 0 0 0 0.18 0 0 0 0.02 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
   --radius:12px;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
 }
@@ -31,9 +35,15 @@
   --accent:#5AA9E6; --accent-dim:#1E2C3B; --accent-text:#0C1520;
   --green:#4ADE80; --red:#F87171; --gold:#FBBF24;
   --shadow:0 1px 3px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.3);
+  --shadow-lg:0 4px 10px rgba(0,0,0,.4), 0 20px 44px rgba(0,0,0,.35);
+  --card-top-highlight:none;
+  --texture:none;
+  --grain:none;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);transition:background .15s,color .15s}
+body{margin:0;background-color:var(--bg);background-image:var(--texture);color:var(--text);transition:background-color .15s,color .15s;position:relative}
+body::before{content:'';position:fixed;inset:0;background-image:var(--grain);opacity:.5;mix-blend-mode:multiply;pointer-events:none;z-index:0}
+#login-screen,#app-shell{position:relative;z-index:1}
 button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 11px;font-size:13.5px;outline:none}
 input:focus,select:focus,textarea:focus{border-color:var(--accent)}
@@ -118,6 +128,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .ov-body{padding:18px 20px}
 .ov-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
 
+.setor-grupo{margin-bottom:22px}
+.setor-grupo:last-child{margin-bottom:0}
+.setor-grupo-head{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.03em;padding-bottom:7px;margin-bottom:8px;border-bottom:2px solid var(--accent-dim)}
+.setor-grupo-head .cnt{font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0}
 .setor-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
 .setor-tab{padding:6px 12px;border-radius:99px;font-size:12px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
 .setor-tab.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
@@ -286,7 +300,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <div class="card-title" style="margin:0">Catálogo de atividades</div>
             <button class="btn btn-primary" onclick="abrirModalAtividade()">+ Nova atividade</button>
           </div>
-          <table class="tbl"><thead><tr><th>Setor</th><th>Atividade</th><th>Tempo padrão</th><th>Status</th><th></th></tr></thead><tbody id="adm-atividades-tbody"></tbody></table>
+          <div id="adm-atividades-grupos"></div>
         </div>
       </div>
 
@@ -1180,12 +1194,23 @@ async function toggleAtivoSetor(id, ativoAtual){
 
 async function renderAdmAtividades(){
   const { data } = await Q.from('atividades').select('*').order('nome');
-  const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
-  document.getElementById('adm-atividades-tbody').innerHTML = (data||[]).map(a=>`<tr>
-    <td>${setorNome[a.setor_id]||'—'}</td><td>${a.nome}</td><td>${a.tempo_padrao_min||'—'}</td>
-    <td>${a.ativo?'<span class="pill pill-green">Ativa</span>':'<span class="pill pill-muted">Inativa</span>'}</td>
-    <td><button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoAtividade('${a.id}',${a.ativo})">${a.ativo?'Desativar':'Ativar'}</button></td>
-  </tr>`).join('');
+  const lista = data||[];
+  document.getElementById('adm-atividades-grupos').innerHTML = SETORES.map(s=>{
+    const dessesetor = lista.filter(a=>a.setor_id===s.id);
+    if(!dessesetor.length) return '';
+    return `<div class="setor-grupo">
+      <div class="setor-grupo-head">${s.nome} <span class="cnt">(${dessesetor.length})</span></div>
+      <table class="tbl"><thead><tr><th>Atividade</th><th>Tempo padrão</th><th>SLA</th><th>Status</th><th></th></tr></thead><tbody>
+        ${dessesetor.map(a=>`<tr>
+          <td>${a.nome}${a.requer_aprovacao?' <span class="pill pill-gold" style="margin-left:4px">aprovação</span>':''}${(a.checklist||[]).length?' <span class="pill pill-blue" style="margin-left:4px">checklist</span>':''}</td>
+          <td>${a.tempo_padrao_min?a.tempo_padrao_min+' min':'—'}</td>
+          <td>${a.sla_horas?a.sla_horas+'h':'—'}</td>
+          <td>${a.ativo?'<span class="pill pill-green">Ativa</span>':'<span class="pill pill-muted">Inativa</span>'}</td>
+          <td><button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoAtividade('${a.id}',${a.ativo})">${a.ativo?'Desativar':'Ativar'}</button></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  }).join('') || '<div style="text-align:center;color:var(--muted);padding:20px">Nenhuma atividade cadastrada.</div>';
 }
 function abrirModalAtividade(){
   document.getElementById('at-id').value='';
