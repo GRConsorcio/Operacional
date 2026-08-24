@@ -1042,16 +1042,33 @@ function abrirNovaSolicitacao(){
 async function salvarSolicitacao(){
   const assunto = document.getElementById('sol-assunto').value.trim();
   if(!assunto){ toast('Informe o assunto.'); return; }
+  const setorDestinoId = document.getElementById('sol-destino').value;
   const payload = {
     setor_origem_id: ME.setor_id||null,
-    setor_destino_id: document.getElementById('sol-destino').value,
+    setor_destino_id: setorDestinoId,
     solicitante_id: ME.id, assunto,
     prioridade: document.getElementById('sol-prioridade').value,
     prazo_horas: parseFloat(document.getElementById('sol-prazo').value)||24
   };
-  const { error } = await Q.from('solicitacoes').insert(payload);
+  const { data, error } = await Q.from('solicitacoes').insert(payload).select().single();
   if(error){ toast('Erro: '+error.message); return; }
   closeOV('ov-solicitacao'); renderDemandas(); toast('Solicitação enviada.');
+
+  // Também abre o ticket de verdade no DemandasGR (fire-and-forget — se falhar,
+  // a solicitação já existe normalmente dentro do Operacional mesmo assim).
+  try{
+    const setorDestinoNome = SETORES.find(s=>s.id===setorDestinoId)?.nome;
+    const setorOrigemNome = SETORES.find(s=>s.id===ME.setor_id)?.nome;
+    const resp = await fetch(CRM_URL+'/functions/v1/demandasgr-sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'create', setorDestinoNome, setorOrigemNome, assunto, prioridade: payload.prioridade, solicitanteNome: ME.nome })
+    });
+    const json = await resp.json();
+    if(json.ok && json.firebase_ticket_id){
+      await Q.from('solicitacoes').update({firebase_ticket_id: json.firebase_ticket_id, sincronizado_em: new Date().toISOString()}).eq('id', data.id);
+      renderDemandas();
+    }
+  }catch(e){ console.warn('[salvarSolicitacao] falha ao criar ticket no DemandasGR:', e.message); }
 }
 
 /* ═══════════ RELATÓRIOS ═══════════ */
