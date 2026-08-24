@@ -887,7 +887,8 @@ async function renderDemandasSetorHome(){
   card.classList.toggle('hidden', lista.length===0);
   document.getElementById('demandas-setor-tbody').innerHTML = lista.map(s=>{
     const cor = s.prioridade==='urgente'?'pill-red':s.prioridade==='alta'?'pill-gold':'pill-blue';
-    return `<tr><td>${s.assunto}</td><td>${s.usuarios?.nome||'—'} (${s.origem?.nome||'—'})</td>
+    const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
+    return `<tr><td>${s.assunto}</td><td>${solicitante} (${s.origem?.nome||'—'})</td>
       <td><span class="pill ${cor}">${s.prioridade}</span></td><td>${s.prazo_horas}h</td>
       <td><button class="btn btn-primary" style="padding:6px 10px" onclick="iniciarSolicitacaoComoAtividade('${s.id}')">${ico('play',13)} Iniciar</button></td></tr>`;
   }).join('');
@@ -900,7 +901,7 @@ async function iniciarSolicitacaoComoAtividade(id){
     usuario_id:ME.id, tipo:'extraordinario', solicitacao_id:id,
     extra_o_que: sol.assunto,
     extra_por_que: 'Solicitação recebida pela Central de Demandas',
-    extra_quem_solicitou: sol.usuarios?.nome||'—',
+    extra_quem_solicitou: sol.usuarios?.nome || sol.solicitante_nome_externo || '—',
     extra_setor_origem: sol.origem?.nome||'—'
   };
   const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
@@ -1019,11 +1020,15 @@ async function renderDemandas(){
   q = DEM_ABA==='recebidas' ? q.eq('setor_destino_id', ME.setor_id||'00000000-0000-0000-0000-000000000000') : q.eq('solicitante_id', ME.id);
   const { data } = await q;
   const statusPill = s=>({aberta:'<span class="pill pill-blue">Aberta</span>',em_andamento:'<span class="pill pill-gold">Em andamento</span>',concluida:'<span class="pill pill-green">Concluída</span>',cancelada:'<span class="pill pill-muted">Cancelada</span>'})[s];
-  document.getElementById('dem-tbody').innerHTML = (data||[]).map(s=>`<tr>
-    <td>${s.assunto}</td><td>${s.usuarios?.nome||'—'} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td>
+  document.getElementById('dem-tbody').innerHTML = (data||[]).map(s=>{
+    const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
+    const origemTag = s.firebase_ticket_id ? ' <span class="pill pill-muted" style="font-size:9px">DemandasGR</span>' : '';
+    return `<tr>
+    <td>${s.assunto}${origemTag}</td><td>${solicitante} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td>
     <td>${s.prioridade}</td><td>${s.prazo_horas}h</td><td>${statusPill(s.status)}</td>
     <td>${s.status==='cancelada'||s.status==='concluida'||DEM_ABA==='recebidas' ? '' : `<button class="btn btn-muted" style="padding:5px 9px" onclick="cancelarSolicitacao('${s.id}')">Cancelar</button>`}</td>
-  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Nenhuma solicitação.</td></tr>';
+  </tr>`;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Nenhuma solicitação.</td></tr>';
 }
 async function cancelarSolicitacao(id){
   await Q.from('solicitacoes').update({status:'cancelada'}).eq('id',id);
