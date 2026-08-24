@@ -235,12 +235,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
           <button class="btn btn-primary" onclick="abrirNovaSolicitacao()">+ Nova solicitação</button>
         </div>
         <div class="card">
-          <table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Para</th><th>Prioridade</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody id="dem-tbody"></tbody></table>
+          <table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Para</th><th>Responsável</th><th>Prioridade</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody id="dem-tbody"></tbody></table>
         </div>
       </div>
 
-      <!-- ───── RELATÓRIOS (supervisor+) ───── -->
+      <!-- ───── RELATÓRIOS (todo cargo, escopo varia) ───── -->
       <div class="page" id="page-relatorios">
+        <div id="rel-escopo-label" style="color:var(--muted);font-size:12.5px;margin-bottom:10px"></div>
         <div class="grid grid-3" id="rel-kpis" style="margin-bottom:16px"></div>
         <div class="grid grid-2" style="margin-bottom:16px">
           <div class="card">
@@ -279,6 +280,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
           <div class="setor-tab on" onclick="admTab('usuarios',this)">Usuários</div>
           <div class="setor-tab" onclick="admTab('setores',this)">Setores</div>
           <div class="setor-tab" onclick="admTab('atividades',this)">Atividades</div>
+          <div class="setor-tab" onclick="admTab('historico',this)">Histórico</div>
         </div>
 
         <div id="adm-usuarios" class="card">
@@ -303,6 +305,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <button class="btn btn-primary" onclick="abrirModalAtividade()">+ Nova atividade</button>
           </div>
           <div id="adm-atividades-grupos"></div>
+        </div>
+
+        <div id="adm-historico" class="card hidden">
+          <div class="card-title">Histórico (auditoria)</div>
+          <table class="tbl"><thead><tr><th>Data</th><th>Quem</th><th>Ação</th><th>Registro</th><th>Detalhes</th></tr></thead><tbody id="adm-historico-tbody"></tbody></table>
         </div>
       </div>
 
@@ -429,6 +436,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <div class="ov-body">
       <div class="fld"><label>Destino</label><select id="sol-destino" style="width:100%"></select></div>
       <div class="fld"><label>Assunto</label><input id="sol-assunto"></div>
+      <div class="fld"><label>Detalhes / informações</label><textarea id="sol-descricao" rows="3" placeholder="O que é preciso, contexto, links, etc."></textarea></div>
       <div class="fld"><label>Prioridade</label>
         <select id="sol-prioridade" style="width:100%"><option value="baixa">Baixa</option><option value="normal" selected>Normal</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select>
       </div>
@@ -586,15 +594,22 @@ const podeVerEquipe = () => ['supervisor','gerente','diretoria','admin'].include
 
 /* ═══════════ INICIALIZAÇÃO DO APP ═══════════ */
 async function iniciarApp(){
+  // BUGFIX: catalogo precisa terminar de carregar ANTES do app-shell aparecer.
+  // Antes o shell.on() vinha primeiro e o catalogo carregava em paralelo —
+  // um clique rapido em "+ Nova atividade" (ou rede lenta) abria o modal
+  // antes de SETORES/ATIVIDADES chegarem, deixando-o em branco.
+  await carregarCatalogo();
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-shell').classList.add('on');
   document.getElementById('sb-user-nome').textContent = ME.nome;
   document.getElementById('sb-user-cargo').textContent = {colaborador:'Colaborador',supervisor:'Supervisor',gerente:'Gerente',diretoria:'Diretoria',admin:'Administrador'}[ME.cargo]||ME.cargo;
   if(podeVerEquipe()) document.getElementById('nav-equipe').classList.remove('hidden');
-  if(podeVerEquipe()){ document.getElementById('nav-aprovacoes').classList.remove('hidden'); document.getElementById('nav-relatorios').classList.remove('hidden'); }
+  if(podeVerEquipe()) document.getElementById('nav-aprovacoes').classList.remove('hidden');
+  // Relatórios agora é visível pra todo cargo — o ESCOPO dos dados é que muda
+  // (admin vê tudo, coordenador/supervisor vê a equipe, colaborador vê só o seu).
+  document.getElementById('nav-relatorios').classList.remove('hidden');
   if(isAdmin()) document.getElementById('nav-admin').classList.remove('hidden');
 
-  await carregarCatalogo();
   document.getElementById('pausa-setor-relacionado').innerHTML = '<option value="">—</option>'+SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
 
   await carregarExecucaoAtual();
@@ -617,6 +632,7 @@ function iniciarRealtimeDemandas(){
       }
       if(curPage==='demandas') renderDemandas();
       if(curPage==='relatorios') renderRelatorios();
+      if(curPage==='home') renderDemandasSetorHome();
     })
     .subscribe();
 }
@@ -743,16 +759,23 @@ async function abrirNovaAtividade(extra){
   document.getElementById('nova-titulo').textContent = extra ? 'Atividade extraordinária' : 'Nova atividade';
   document.getElementById('nova-normal').classList.toggle('hidden', extra);
   document.getElementById('nova-extra').classList.toggle('hidden', !extra);
+  // BUGFIX: abre o modal já com um estado visível (nunca em branco) e só
+  // depois preenche — antes o modal só aparecia no fim, então qualquer
+  // demora/erro no carregamento deixava a janela "vazia" sem explicação.
+  document.getElementById('ov-nova').classList.add('on');
   if(!extra){
-    // Auto-recuperação: se o catálogo veio vazio (falha silenciosa no boot), tenta de novo aqui.
+    document.getElementById('nova-setor-tabs').innerHTML = '';
+    document.getElementById('nova-ativ-list').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Carregando atividades…</div>';
     if(!SETORES.length || !ATIVIDADES.length) await carregarCatalogo();
-    if(!SETORES.length){ toast('Não consegui carregar os setores agora. Tente de novo em instantes.'); return; }
+    if(!SETORES.length){
+      document.getElementById('nova-ativ-list').innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">Não consegui carregar os setores agora. Feche e tente de novo em instantes.</div>';
+      return;
+    }
     SETOR_SEL = ME.setor_id || (SETORES[0] && SETORES[0].id);
     document.getElementById('nova-setor-tabs').innerHTML = SETORES.map(s=>
       `<div class="setor-tab ${s.id===SETOR_SEL?'on':''}" onclick="selecionarSetorNovo('${s.id}',this)">${s.nome}</div>`).join('');
     renderAtivList();
   }
-  document.getElementById('ov-nova').classList.add('on');
 }
 function selecionarSetorNovo(id, el){
   SETOR_SEL = id;
@@ -892,18 +915,21 @@ async function renderDemandasSetorHome(){
   document.getElementById('demandas-setor-tbody').innerHTML = lista.map(s=>{
     const cor = s.prioridade==='urgente'?'pill-red':s.prioridade==='alta'?'pill-gold':'pill-blue';
     const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
-    return `<tr><td>${s.assunto}</td><td>${solicitante} (${s.origem?.nome||'—'})</td>
+    const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
+    return `<tr><td>${assuntoLinha}</td><td>${solicitante} (${s.origem?.nome||'—'})</td>
       <td><span class="pill ${cor}">${s.prioridade}</span></td><td>${s.prazo_horas}h</td>
       <td><button class="btn btn-primary" style="padding:6px 10px" onclick="iniciarSolicitacaoComoAtividade('${s.id}')">${ico('play',13)} Iniciar</button></td></tr>`;
   }).join('');
 }
 async function iniciarSolicitacaoComoAtividade(id){
   if(EXEC_ATUAL){ toast('Finalize a atividade atual antes de iniciar outra.'); return; }
-  const sol = (await Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single()).data;
-  await Q.from('solicitacoes').update({status:'em_andamento', responsavel_id:ME.id, iniciado_em:new Date().toISOString()}).eq('id',id);
+  const { data: sol, error: solErr } = await Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
+  if(solErr){ toast('Erro: '+solErr.message); return; }
+  const { error: updErr } = await Q.from('solicitacoes').update({status:'em_andamento', responsavel_id:ME.id, iniciado_em:new Date().toISOString()}).eq('id',id);
+  if(updErr){ toast('Erro: '+updErr.message); return; }
   const payload = {
     usuario_id:ME.id, tipo:'extraordinario', solicitacao_id:id,
-    extra_o_que: sol.assunto,
+    extra_o_que: sol.descricao ? `${sol.assunto} — ${sol.descricao}` : sol.assunto,
     extra_por_que: 'Solicitação recebida pela Central de Demandas',
     extra_quem_solicitou: sol.usuarios?.nome || sol.solicitante_nome_externo || '—',
     extra_setor_origem: sol.origem?.nome||'—'
@@ -965,7 +991,8 @@ async function renderAprovacoes(){
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Nada aguardando validação.</td></tr>';
 }
 async function aprovarExecucao(id){
-  await Q.from('execucoes').update({status:'concluido', aprovado_por:ME.id, aprovado_em:new Date().toISOString()}).eq('id',id);
+  const { error } = await Q.from('execucoes').update({status:'concluido', aprovado_por:ME.id, aprovado_em:new Date().toISOString()}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
   renderAprovacoes(); toast('Atividade aprovada.');
 }
 function abrirDevolver(id){
@@ -977,7 +1004,8 @@ async function confirmarDevolucao(){
   const id = document.getElementById('dev-exec-id').value;
   const motivo = document.getElementById('dev-motivo').value.trim();
   if(!motivo){ toast('Informe o motivo da devolução.'); return; }
-  await Q.from('execucoes').update({status:'devolvida', motivo_devolucao:motivo}).eq('id',id);
+  const { error } = await Q.from('execucoes').update({status:'devolvida', motivo_devolucao:motivo}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
   closeOV('ov-devolver'); renderAprovacoes(); toast('Devolvido para correção.');
 }
 
@@ -1020,42 +1048,46 @@ function demTab(nome, el){
   renderDemandas();
 }
 async function renderDemandas(){
-  let q = Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome), destino:setores!solicitacoes_setor_destino_id_fkey(nome)').order('criado_em',{ascending:false});
+  let q = Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), responsavel:usuarios!solicitacoes_responsavel_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome), destino:setores!solicitacoes_setor_destino_id_fkey(nome)').order('criado_em',{ascending:false});
   q = DEM_ABA==='recebidas' ? q.eq('setor_destino_id', ME.setor_id||'00000000-0000-0000-0000-000000000000') : q.eq('solicitante_id', ME.id);
   const { data } = await q;
   const statusPill = s=>({aberta:'<span class="pill pill-blue">Aberta</span>',em_andamento:'<span class="pill pill-gold">Em andamento</span>',concluida:'<span class="pill pill-green">Concluída</span>',cancelada:'<span class="pill pill-muted">Cancelada</span>'})[s];
   document.getElementById('dem-tbody').innerHTML = (data||[]).map(s=>{
     const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
     const origemTag = s.firebase_ticket_id ? ' <span class="pill pill-muted" style="font-size:9px">DemandasGR</span>' : '';
+    const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
     return `<tr>
-    <td>${s.assunto}${origemTag}</td><td>${solicitante} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td>
+    <td>${assuntoLinha}${origemTag}</td><td>${solicitante} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td><td>${s.responsavel?.nome||'—'}</td>
     <td>${s.prioridade}</td><td>${s.prazo_horas}h</td><td>${statusPill(s.status)}</td>
     <td>${s.status==='cancelada'||s.status==='concluida'||DEM_ABA==='recebidas' ? '' : `<button class="btn btn-muted" style="padding:5px 9px" onclick="cancelarSolicitacao('${s.id}')">Cancelar</button>`}</td>
   </tr>`;
-  }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Nenhuma solicitação.</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Nenhuma solicitação.</td></tr>';
 }
 async function cancelarSolicitacao(id){
-  await Q.from('solicitacoes').update({status:'cancelada'}).eq('id',id);
+  const { error } = await Q.from('solicitacoes').update({status:'cancelada'}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
   renderDemandas();
 }
 function abrirNovaSolicitacao(){
   document.getElementById('sol-destino').innerHTML = SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
-  document.getElementById('sol-assunto').value=''; document.getElementById('sol-prazo').value=24;
+  document.getElementById('sol-assunto').value=''; document.getElementById('sol-descricao').value=''; document.getElementById('sol-prazo').value=24;
   document.getElementById('ov-solicitacao').classList.add('on');
 }
 async function salvarSolicitacao(){
   const assunto = document.getElementById('sol-assunto').value.trim();
   if(!assunto){ toast('Informe o assunto.'); return; }
+  const descricao = document.getElementById('sol-descricao').value.trim();
   const setorDestinoId = document.getElementById('sol-destino').value;
   const payload = {
     setor_origem_id: ME.setor_id||null,
     setor_destino_id: setorDestinoId,
-    solicitante_id: ME.id, assunto,
+    solicitante_id: ME.id, assunto, descricao,
     prioridade: document.getElementById('sol-prioridade').value,
     prazo_horas: parseFloat(document.getElementById('sol-prazo').value)||24
   };
   const { data, error } = await Q.from('solicitacoes').insert(payload).select().single();
   if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('solicitacoes', data?.id, assunto, 'criar', null);
   closeOV('ov-solicitacao'); renderDemandas(); toast('Solicitação enviada.');
 
   // Também abre o ticket de verdade no DemandasGR (fire-and-forget — se falhar,
@@ -1065,7 +1097,7 @@ async function salvarSolicitacao(){
     const setorOrigemNome = SETORES.find(s=>s.id===ME.setor_id)?.nome;
     const resp = await fetch(CRM_URL+'/functions/v1/demandasgr-sync', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'create', setorDestinoNome, setorOrigemNome, assunto, prioridade: payload.prioridade, solicitanteNome: ME.nome })
+      body: JSON.stringify({ action:'create', setorDestinoNome, setorOrigemNome, assunto, desc:descricao, prioridade: payload.prioridade, solicitanteNome: ME.nome })
     });
     const json = await resp.json();
     if(json.ok && json.firebase_ticket_id){
@@ -1077,9 +1109,28 @@ async function salvarSolicitacao(){
 
 /* ═══════════ RELATÓRIOS ═══════════ */
 function fmtHoras(seg){ return (seg/3600).toFixed(1)+'h'; }
+/* Escopo de visão dos Relatórios: admin vê a empresa toda; coordenador/
+   supervisor/gerente/diretoria vêem só a própria equipe (mesmo setor);
+   colaborador vê só o que é dele. Null = sem filtro (admin). */
+async function escopoRelatorioIds(){
+  if(ME.cargo==='admin') return null;
+  if(['supervisor','gerente','diretoria'].includes(ME.cargo)){
+    const { data } = await Q.from('usuarios').select('id').eq('setor_id', ME.setor_id||'00000000-0000-0000-0000-000000000000');
+    const ids = (data||[]).map(u=>u.id);
+    return ids.length ? ids : [ME.id];
+  }
+  return [ME.id];
+}
 async function renderRelatorios(){
   const inicio30 = new Date(); inicio30.setDate(inicio30.getDate()-30);
-  const { data: execs } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min), usuarios!execucoes_usuario_id_fkey(setor_id)').gte('criado_em',inicio30.toISOString());
+  const idsEscopo = await escopoRelatorioIds();
+  document.getElementById('rel-escopo-label').textContent = idsEscopo===null
+    ? 'Mostrando: toda a empresa'
+    : (ME.cargo==='colaborador' ? 'Mostrando: suas atividades' : 'Mostrando: sua equipe ('+(SETORES.find(s=>s.id===ME.setor_id)?.nome||'—')+')');
+
+  let qExecs = Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min), usuarios!execucoes_usuario_id_fkey(setor_id)').gte('criado_em',inicio30.toISOString());
+  if(idsEscopo) qExecs = qExecs.in('usuario_id', idsEscopo);
+  const { data: execs } = await qExecs;
   const lista = execs||[];
   const concluidas = lista.filter(e=>e.status==='concluido'||e.status==='aguardando_validacao');
   const segProdutivo = e => Math.max(0,(new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0));
@@ -1111,8 +1162,14 @@ async function renderRelatorios(){
     return `<tr><td>${g.nome}</td><td>${fmtHoras(g.seg)}</td><td>${desvioMedio===null?'—':(desvioMedio>=0?'+':'')+desvioMedio+'%'}</td><td>${pctRetr}%</td></tr>`;
   }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Sem dados.</td></tr>';
 
-  // SLA das solicitações
-  const { data: sols } = await Q.from('solicitacoes').select('*, setores!solicitacoes_setor_destino_id_fkey(nome)').eq('status','concluida').gte('criado_em',inicio30.toISOString());
+  // SLA das solicitações — escopo aqui é sobre quem CUMPRIU o prazo:
+  // equipe = solicitações que chegaram pro setor dela; colaborador = as que ele mesmo atendeu.
+  let qSols = Q.from('solicitacoes').select('*, setores!solicitacoes_setor_destino_id_fkey(nome)').eq('status','concluida').gte('criado_em',inicio30.toISOString());
+  if(idsEscopo){
+    if(ME.cargo==='colaborador') qSols = qSols.eq('responsavel_id', ME.id);
+    else qSols = qSols.eq('setor_destino_id', ME.setor_id||'00000000-0000-0000-0000-000000000000');
+  }
+  const { data: sols } = await qSols;
   const porSetorSLA = {};
   (sols||[]).forEach(s=>{
     const key = s.setores?.nome||'—';
@@ -1129,7 +1186,10 @@ async function renderRelatorios(){
 
   // Interrupções e dependências — via pausas com setor_relacionado
   const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
-  const { data: pausas } = await Q.from('pausas').select('*, execucoes(usuario_id,usuarios!execucoes_usuario_id_fkey(setor_id,nome))').not('setor_relacionado_id','is',null).not('fim','is',null).gte('inicio',inicio30.toISOString());
+  const { data: pausasRaw } = await Q.from('pausas').select('*, execucoes(usuario_id,usuarios!execucoes_usuario_id_fkey(setor_id,nome))').not('setor_relacionado_id','is',null).not('fim','is',null).gte('inicio',inicio30.toISOString());
+  // Filtro de escopo aplicado em memória — pausas não tem usuario_id direto,
+  // só via execucoes aninhado, então é mais simples filtrar aqui do que no PostgREST.
+  const pausas = idsEscopo ? (pausasRaw||[]).filter(p=>idsEscopo.includes(p.execucoes?.usuario_id)) : pausasRaw;
   const MOTIVOS_INTERRUPCAO = ['Atendimento solicitado pela gestão','Demanda urgente'];
   const MOTIVOS_DEPENDENCIA = ['Aguardando aprovação','Aguardando documento'];
   const interrup = {}, depend = {};
@@ -1156,10 +1216,35 @@ async function renderRelatorios(){
 function admTab(nome, el){
   document.querySelectorAll('#page-admin .setor-tab').forEach(t=>t.classList.remove('on'));
   el.classList.add('on');
-  ['usuarios','setores','atividades'].forEach(n=>document.getElementById('adm-'+n).classList.toggle('hidden', n!==nome));
+  ['usuarios','setores','atividades','historico'].forEach(n=>document.getElementById('adm-'+n).classList.toggle('hidden', n!==nome));
+  if(nome==='historico') renderAdmHistorico();
 }
 async function renderAdmin(){
   await Promise.all([renderAdmUsuarios(), renderAdmSetores(), renderAdmAtividades()]);
+}
+
+/* ═══════════ AUDITORIA ═══════════ */
+async function registrarAuditoria(tabela, registro_id, registro_nome, acao, detalhes){
+  try{
+    await Q.from('log_auditoria').insert({
+      tabela, registro_id: registro_id||null, registro_nome: registro_nome||null,
+      acao, usuario_id: ME?.id||null, usuario_nome: ME?.nome||null, detalhes: detalhes||null
+    });
+  }catch(e){ console.warn('[registrarAuditoria] falha ao gravar log:', e.message); }
+}
+function mensagemErroExclusao(error){
+  if(error.code === '23503') return 'Não é possível apagar: ainda há registros vinculados a este item (atividades, usuários ou execuções). Desative em vez de apagar.';
+  return 'Erro: '+error.message;
+}
+async function renderAdmHistorico(){
+  const { data } = await Q.from('log_auditoria').select('*').order('criado_em',{ascending:false}).limit(200);
+  document.getElementById('adm-historico-tbody').innerHTML = (data||[]).map(l=>`<tr>
+    <td style="white-space:nowrap">${new Date(l.criado_em).toLocaleString('pt-BR')}</td>
+    <td>${l.usuario_nome||'—'}</td>
+    <td>${l.acao}</td>
+    <td>${l.tabela}${l.registro_nome?' — '+l.registro_nome:''}</td>
+    <td style="color:var(--muted);font-size:12px">${l.detalhes?Object.entries(l.detalhes).map(([k,v])=>`${k}: ${v}`).join(', '):''}</td>
+  </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sem registros ainda.</td></tr>';
 }
 async function renderAdmUsuarios(){
   const { data } = await Q.from('usuarios').select('*').order('nome');
@@ -1174,12 +1259,55 @@ async function renderAdmUsuarios(){
     </select></td>
     <td>${u.auth_source||'—'}</td>
     <td>${u.ativo?'<span class="pill pill-green">Ativo</span>':'<span class="pill pill-muted">Inativo</span>'}</td>
-    <td><button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoUsuario('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button></td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoUsuario('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
+      ${u.auth_user_id?`<button class="btn btn-muted" style="padding:6px 10px" onclick="resetarSenhaUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Redefinir senha</button>`:''}
+      <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
+    </td>
   </tr>`).join('');
 }
-async function mudarCargo(id,cargo){ await Q.from('usuarios').update({cargo}).eq('id',id); toast('Cargo atualizado.'); }
-async function mudarSetor(id,setor_id){ await Q.from('usuarios').update({setor_id:setor_id||null}).eq('id',id); toast('Setor atualizado.'); }
-async function toggleAtivoUsuario(id, ativoAtual){ await Q.from('usuarios').update({ativo:!ativoAtual}).eq('id',id); renderAdmUsuarios(); }
+async function mudarCargo(id,cargo){
+  const { error } = await Q.from('usuarios').update({cargo}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('usuarios', id, null, 'editar_cargo', {cargo});
+  toast('Cargo atualizado.');
+}
+async function mudarSetor(id,setor_id){
+  const { error } = await Q.from('usuarios').update({setor_id:setor_id||null}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('usuarios', id, null, 'editar_setor', {setor_id:setor_id||null});
+  toast('Setor atualizado.');
+}
+async function toggleAtivoUsuario(id, ativoAtual){
+  const { error } = await Q.from('usuarios').update({ativo:!ativoAtual}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('usuarios', id, null, ativoAtual?'desativar':'ativar', null);
+  renderAdmUsuarios();
+}
+async function deleteUsuario(id, nome){
+  if(!confirm(`Apagar o usuário "${nome}" definitivamente? Essa ação não pode ser desfeita.`)) return;
+  const { error } = await Q.from('usuarios').delete().eq('id',id);
+  if(error){ toast(mensagemErroExclusao(error)); return; }
+  registrarAuditoria('usuarios', id, nome, 'apagar', null);
+  renderAdmUsuarios(); toast('Usuário apagado.');
+}
+async function resetarSenhaUsuario(id, nome){
+  const senhaCustom = prompt(`Nova senha temporária para "${nome}" (deixe em branco para gerar uma automática):`);
+  if(senhaCustom === null) return;
+  const { data:u } = await Q.from('usuarios').select('auth_user_id,auth_source').eq('id',id).maybeSingle();
+  if(!u?.auth_user_id){ toast('Este usuário não tem login vinculado.'); return; }
+  const url = (u.auth_source==='portal' ? PORTAL_URL : CRM_URL)+'/functions/v1/operacional-reset-senha';
+  try{
+    const resp = await fetch(url, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ caller_usuario_id: ME.id, auth_user_id: u.auth_user_id, password: senhaCustom||'' })
+    });
+    const json = await resp.json();
+    if(json.error){ toast('Erro: '+json.error); return; }
+    registrarAuditoria('usuarios', id, nome, 'redefinir_senha', null);
+    toast(json.senha_temporaria ? `Senha redefinida. Nova senha temporária: ${json.senha_temporaria}` : 'Senha redefinida.');
+  }catch(e){ toast('Erro ao redefinir senha: '+e.message); }
+}
 
 function abrirModalUsuario(){
   document.getElementById('us-id').value='';
@@ -1218,8 +1346,9 @@ async function salvarUsuario(){
     }catch(e){ toast('Erro ao criar login: '+e.message); return; }
   }
 
-  const { error } = await Q.from('usuarios').insert({nome, email, cargo, setor_id, auth_source, auth_user_id, ativo:true});
+  const { data:novo, error } = await Q.from('usuarios').insert({nome, email, cargo, setor_id, auth_source, auth_user_id, ativo:true}).select().single();
   if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('usuarios', novo?.id, nome, 'criar', null);
   closeOV('ov-usuario'); renderAdmUsuarios(); toast('Usuário salvo.');
 }
 
@@ -1228,20 +1357,34 @@ async function renderAdmSetores(){
   document.getElementById('adm-setores-tbody').innerHTML = (data||[]).map(s=>`<tr>
     <td>${s.nome}</td>
     <td>${s.ativo?'<span class="pill pill-green">Ativo</span>':'<span class="pill pill-muted">Inativo</span>'}</td>
-    <td><button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoSetor('${s.id}',${s.ativo})">${s.ativo?'Desativar':'Ativar'}</button></td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoSetor('${s.id}',${s.ativo})">${s.ativo?'Desativar':'Ativar'}</button>
+      <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteSetor('${s.id}','${(s.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
+    </td>
   </tr>`).join('');
 }
 async function novoSetor(){
   const nome = prompt('Nome do novo setor:'); if(!nome) return;
-  const { error } = await Q.from('setores').insert({nome:nome.trim()});
+  const { data:novo, error } = await Q.from('setores').insert({nome:nome.trim()}).select().single();
   if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('setores', novo?.id, nome.trim(), 'criar', null);
   const { data } = await Q.from('setores').select('*').eq('ativo',true).order('nome'); SETORES = data||[];
   renderAdmSetores(); toast('Setor criado.');
 }
 async function toggleAtivoSetor(id, ativoAtual){
-  await Q.from('setores').update({ativo:!ativoAtual}).eq('id',id);
+  const { error } = await Q.from('setores').update({ativo:!ativoAtual}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('setores', id, null, ativoAtual?'desativar':'ativar', null);
   const { data } = await Q.from('setores').select('*').eq('ativo',true).order('nome'); SETORES = data||[];
   renderAdmSetores();
+}
+async function deleteSetor(id, nome){
+  if(!confirm(`Apagar o setor "${nome}" definitivamente? Só é possível se não houver usuários/atividades vinculados.`)) return;
+  const { error } = await Q.from('setores').delete().eq('id',id);
+  if(error){ toast(mensagemErroExclusao(error)); return; }
+  registrarAuditoria('setores', id, nome, 'apagar', null);
+  const { data } = await Q.from('setores').select('*').eq('ativo',true).order('nome'); SETORES = data||[];
+  renderAdmSetores(); toast('Setor apagado.');
 }
 
 async function renderAdmAtividades(){
@@ -1258,7 +1401,10 @@ async function renderAdmAtividades(){
           <td>${a.tempo_padrao_min?a.tempo_padrao_min+' min':'—'}</td>
           <td>${a.sla_horas?a.sla_horas+'h':'—'}</td>
           <td>${a.ativo?'<span class="pill pill-green">Ativa</span>':'<span class="pill pill-muted">Inativa</span>'}</td>
-          <td><button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoAtividade('${a.id}',${a.ativo})">${a.ativo?'Desativar':'Ativar'}</button></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoAtividade('${a.id}',${a.ativo})">${a.ativo?'Desativar':'Ativar'}</button>
+            <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteAtividade('${a.id}','${(a.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
+          </td>
         </tr>`).join('')}
       </tbody></table>
     </div>`;
@@ -1280,15 +1426,26 @@ async function salvarAtividade(){
   const checklist = document.getElementById('at-checklist').value.split(',').map(s=>s.trim()).filter(Boolean);
   const requer_aprovacao = document.getElementById('at-aprovacao').checked;
   if(!nome){ toast('Informe o nome da atividade.'); return; }
-  const { error } = await Q.from('atividades').insert({setor_id, categoria:nome, nome, tempo_padrao_min, sla_horas, campos_resultado, checklist, requer_aprovacao});
+  const { data:nova, error } = await Q.from('atividades').insert({setor_id, categoria:nome, nome, tempo_padrao_min, sla_horas, campos_resultado, checklist, requer_aprovacao}).select().single();
   if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('atividades', nova?.id, nome, 'criar', null);
   const { data } = await Q.from('atividades').select('*').eq('ativo',true).order('nome'); ATIVIDADES = data||[];
   closeOV('ov-atividade'); renderAdmAtividades(); toast('Atividade criada.');
 }
 async function toggleAtivoAtividade(id, ativoAtual){
-  await Q.from('atividades').update({ativo:!ativoAtual}).eq('id',id);
+  const { error } = await Q.from('atividades').update({ativo:!ativoAtual}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('atividades', id, null, ativoAtual?'desativar':'ativar', null);
   const { data } = await Q.from('atividades').select('*').eq('ativo',true).order('nome'); ATIVIDADES = data||[];
   renderAdmAtividades();
+}
+async function deleteAtividade(id, nome){
+  if(!confirm(`Apagar a atividade "${nome}" definitivamente? Só é possível se não houver execuções vinculadas.`)) return;
+  const { error } = await Q.from('atividades').delete().eq('id',id);
+  if(error){ toast(mensagemErroExclusao(error)); return; }
+  registrarAuditoria('atividades', id, nome, 'apagar', null);
+  const { data } = await Q.from('atividades').select('*').eq('ativo',true).order('nome'); ATIVIDADES = data||[];
+  renderAdmAtividades(); toast('Atividade apagada.');
 }
 
 /* ═══════════ MODAIS GENÉRICO ═══════════ */
