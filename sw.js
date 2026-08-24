@@ -1,5 +1,5 @@
-const CACHE = 'operacional-v2';
-const SHELL = ['./', './index.html', './manifest.json', './icon.svg'];
+const CACHE = 'operacional-v3';
+const SHELL = ['./', './index.html', './manifest.json', './icon.svg?v=3'];
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
