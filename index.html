@@ -140,6 +140,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .ativ-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
 .ativ-item{padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;display:flex;justify-content:space-between;align-items:center}
 .ativ-item:hover{border-color:var(--accent);background:var(--accent-dim)}
+.tl-item{display:flex;gap:12px;padding:8px 0;border-left:2px solid var(--border);margin-left:5px;padding-left:16px;position:relative}
+.tl-item::before{content:'';position:absolute;left:-6px;top:12px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.tl-item:last-child{border-left:2px solid transparent}
+.tl-time{font-family:monospace;font-size:11.5px;color:var(--muted);white-space:nowrap;width:52px;flex-shrink:0}
+.tl-txt{font-size:13px}
+.tl-txt b{font-weight:600}
+.desvio-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#fff;background:var(--red);padding:3px 8px;border-radius:99px;margin-top:6px}
 
 .toast{position:fixed;bottom:20px;right:20px;background:var(--text);color:var(--bg);padding:11px 16px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);z-index:200;opacity:0;transform:translateY(8px);transition:.2s}
 .toast.on{opacity:1;transform:translateY(0)}
@@ -174,7 +181,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <div class="sb-foot">
       <b id="sb-user-nome">—</b>
       <span id="sb-user-cargo">—</span><br>
-      <a href="#" onclick="sair();return false" style="color:var(--muted)">Sair</a>
+      <a href="#" onclick="irPara('privacidade');return false" style="color:var(--muted)">Privacidade</a>
+      · <a href="#" onclick="sair();return false" style="color:var(--muted)">Sair</a>
     </div>
   </div>
 
@@ -196,12 +204,20 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
           <div class="card" id="sem-atividade-card">
             <div class="card-title">O que você vai fazer agora?</div>
             <button class="btn btn-primary" onclick="abrirNovaAtividade()">+ Iniciar atividade</button>
-            <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade(true)">+ Atividade extraordinária</button>
+            <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('extraordinario')">+ Atividade extraordinária</button>
+            <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('estrategico')">+ Atividade estratégica</button>
           </div>
         </div>
         <div class="card hidden" id="demandas-setor-card" style="margin-bottom:16px">
           <div class="card-title">Demandas recebidas para o seu setor</div>
           <table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Prioridade</th><th>Prazo</th><th></th></tr></thead><tbody id="demandas-setor-tbody"></tbody></table>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div class="card-title" style="margin:0">Planejamento de hoje</div>
+            <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirAgendaItem()">+ Adicionar</button>
+          </div>
+          <table class="tbl"><thead><tr><th>Horário</th><th>Planejado</th><th></th><th></th></tr></thead><tbody id="agenda-tbody"></tbody></table>
         </div>
         <div class="card">
           <div class="card-title">Minhas atividades de hoje</div>
@@ -241,19 +257,31 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 
       <!-- ───── RELATÓRIOS (todo cargo, escopo varia) ───── -->
       <div class="page" id="page-relatorios">
-        <div id="rel-escopo-label" style="color:var(--muted);font-size:12.5px;margin-bottom:10px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div id="rel-escopo-label" style="color:var(--muted);font-size:12.5px"></div>
+          <select id="rel-periodo" style="width:auto" onchange="renderRelatorios()">
+            <option value="7">Últimos 7 dias</option>
+            <option value="30" selected>Últimos 30 dias</option>
+            <option value="mes_passado">Mês passado</option>
+          </select>
+        </div>
+        <div id="rel-resumo-diario"></div>
         <div class="grid grid-3" id="rel-kpis" style="margin-bottom:16px"></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Onde foram as horas (planejado / extraordinário / retrabalho / estratégico)</div>
+          <div id="rel-tipo-bar"></div>
+        </div>
         <div class="grid grid-2" style="margin-bottom:16px">
           <div class="card">
             <div class="card-title">Mapa de gargalos (atividades)</div>
-            <table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Desvio médio</th><th>Retrabalho</th></tr></thead><tbody id="rel-gargalos-tbody"></tbody></table>
+            <table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Desvio médio</th><th>Retrabalho</th><th>Meta retrab.</th></tr></thead><tbody id="rel-gargalos-tbody"></tbody></table>
           </div>
           <div class="card">
             <div class="card-title">SLA das solicitações internas</div>
             <table class="tbl"><thead><tr><th>Setor destino</th><th>Concluídas</th><th>SLA cumprido</th></tr></thead><tbody id="rel-sla-tbody"></tbody></table>
           </div>
         </div>
-        <div class="grid grid-2">
+        <div class="grid grid-2" style="margin-bottom:16px">
           <div class="card">
             <div class="card-title">Mapa de interrupções (pausas por outro setor)</div>
             <table class="tbl"><thead><tr><th>Setor que interrompeu</th><th>Setor interrompido</th><th>Tempo total</th></tr></thead><tbody id="rel-interrup-tbody"></tbody></table>
@@ -263,6 +291,26 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <table class="tbl"><thead><tr><th>Aguardando</th><th>Tempo total</th></tr></thead><tbody id="rel-depend-tbody"></tbody></table>
           </div>
         </div>
+        <div class="grid grid-2" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-title">Índice de Eficiência e produção por hora</div>
+            <table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>IE</th><th>Produção/h</th></tr></thead><tbody id="rel-ie-tbody"></tbody></table>
+          </div>
+          <div class="card">
+            <div class="card-title">Capacidade da equipe (estimada)</div>
+            <table class="tbl"><thead><tr><th>Setor</th><th>Horas disponíveis</th><th>Horas usadas</th><th>Ocupação</th></tr></thead><tbody id="rel-capacidade-tbody"></tbody></table>
+          </div>
+        </div>
+        <div class="grid grid-2">
+          <div class="card hidden" id="rel-custo-card">
+            <div class="card-title">Custo por atividade (admin)</div>
+            <table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Custo estimado</th></tr></thead><tbody id="rel-custo-tbody"></tbody></table>
+          </div>
+          <div class="card">
+            <div class="card-title">Banco de melhorias sugeridas</div>
+            <table class="tbl"><thead><tr><th>Atividade</th><th>Quem sugeriu</th><th>Sugestão</th></tr></thead><tbody id="rel-melhorias-tbody"></tbody></table>
+          </div>
+        </div>
       </div>
 
       <!-- ───── INDIVIDUAL ───── -->
@@ -270,7 +318,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="grid grid-3" id="individual-kpis" style="margin-bottom:16px"></div>
         <div class="card">
           <div class="card-title">Histórico recente</div>
-          <table class="tbl"><thead><tr><th>Data</th><th>Atividade</th><th>Tipo</th><th>Tempo</th><th>Status</th></tr></thead><tbody id="individual-tbody"></tbody></table>
+          <table class="tbl"><thead><tr><th>Data</th><th>Atividade</th><th>Tipo</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody id="individual-tbody"></tbody></table>
         </div>
       </div>
 
@@ -308,8 +356,26 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         </div>
 
         <div id="adm-historico" class="card hidden">
-          <div class="card-title">Histórico (auditoria)</div>
-          <table class="tbl"><thead><tr><th>Data</th><th>Quem</th><th>Ação</th><th>Registro</th><th>Detalhes</th></tr></thead><tbody id="adm-historico-tbody"></tbody></table>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div class="card-title" style="margin:0">Histórico (auditoria)</div>
+            <button class="btn btn-danger" style="padding:6px 10px" onclick="limparHistoricoAuditoria()">Limpar histórico</button>
+          </div>
+          <table class="tbl"><thead><tr><th>Data</th><th>Quem</th><th>Ação</th><th>Registro</th><th>Detalhes</th><th></th></tr></thead><tbody id="adm-historico-tbody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- ───── PRIVACIDADE ───── -->
+      <div class="page" id="page-privacidade">
+        <div class="card" style="max-width:640px">
+          <div class="card-title">O que este sistema registra, e por quê</div>
+          <div style="font-size:13.5px;color:var(--text);line-height:1.7">
+            <p><b>O que é coletado:</b> a atividade que você inicia, o tempo gasto, pausas com motivo, o resultado que você informa ao finalizar e os anexos que você envia.</p>
+            <p><b>Para que serve:</b> medir tempo, produção, qualidade e resultado por atividade — identificar gargalos e processos lentos, não vigiar pessoas. Uma atividade fora do padrão gera um alerta de atenção, não uma penalidade automática.</p>
+            <p><b>Quem pode ver:</b> você sempre vê o seu; seu supervisor/coordenador vê a equipe do seu setor; a diretoria e o admin têm visão da operação; o administrador configura atividades, permissões e parâmetros.</p>
+            <p><b>Prazo de guarda:</b> os registros ficam disponíveis para consulta e auditoria interna; não há exclusão automática por tempo.</p>
+            <p><b>Correção de registros:</b> encontrou um dado errado? Fale com seu supervisor ou com o admin — o histórico de alterações fica registrado (aba Histórico, visível ao admin).</p>
+            <p><b>LGPD:</b> os dados tratados aqui são de contexto profissional (atividades de trabalho), usados internamente pela GR Consórcio. Dúvidas sobre tratamento de dados podem ser encaminhadas ao RH.</p>
+          </div>
         </div>
       </div>
 
@@ -382,6 +448,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
           <option>Cliente</option><option>Fornecedor</option><option>Outro</option>
         </select>
       </div>
+      <div class="fld">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="fin-melhoria" style="width:auto" onchange="document.getElementById('fin-melhoria-wrap').classList.toggle('hidden',!this.checked)"> Este processo poderia ser melhorado?</label>
+      </div>
+      <div class="fld hidden" id="fin-melhoria-wrap">
+        <label>Sugira uma melhoria</label>
+        <textarea id="fin-melhoria-texto" rows="2"></textarea>
+      </div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-finalizar')">Cancelar</button><button class="btn btn-primary" onclick="confirmarFinalizar()">✓ Finalizar</button></div>
   </div>
@@ -406,6 +479,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <select id="us-origem" style="width:100%"><option value="crm">CRM</option><option value="portal">Portal</option><option value="novo">Criar novo login (CRM)</option></select>
       </div>
       <div class="fld hidden" id="us-senha-wrap"><label>Senha temporária (login novo)</label><input id="us-senha" type="text" placeholder="deixe em branco para gerar"></div>
+      <div class="fld"><label>Custo por hora (R$, opcional — só admin vê)</label><input id="us-custo-hora" type="number" step="0.01" placeholder="Ex: 37.50"></div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-usuario')">Cancelar</button><button class="btn btn-primary" onclick="salvarUsuario()">Salvar</button></div>
   </div>
@@ -422,6 +496,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="fld"><label>Tempo padrão (minutos, opcional)</label><input id="at-tempo" type="number"></div>
       <div class="fld"><label>SLA / prazo padrão (horas, opcional)</label><input id="at-sla" type="number"></div>
       <div class="fld"><label>Campos do resultado (separados por vírgula)</label><input id="at-campos" placeholder="Ex: Quantidade, Valor total, Houve divergência?"></div>
+      <div class="fld"><label>Qual desses campos é a quantidade produzida? (opcional, pro cálculo de produção/hora)</label><input id="at-campo-qtd" placeholder="Deve ser igual a um dos campos acima, ex: Quantidade"></div>
+      <div class="fld"><label>Meta de retrabalho (%, opcional)</label><input id="at-meta-retrabalho" type="number" step="0.1" placeholder="Ex: 3"></div>
       <div class="fld"><label>Checklist obrigatório (separado por vírgula, opcional)</label><input id="at-checklist" placeholder="Ex: Documentação conferida, Contrato realizado"></div>
       <div class="fld"><label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="at-aprovacao" style="width:auto"> Exige aprovação do gestor ao finalizar</label></div>
     </div>
@@ -455,6 +531,27 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="fld"><label>Motivo (obrigatório)</label><textarea id="dev-motivo" rows="3"></textarea></div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-devolver')">Cancelar</button><button class="btn btn-danger" onclick="confirmarDevolucao()">Devolver</button></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: ITEM DA AGENDA DO DIA ═══ -->
+<div class="ov" id="ov-agenda">
+  <div class="ov-box">
+    <div class="ov-head"><div class="ov-title">Planejar atividade de hoje</div><button class="icon-btn" onclick="closeOV('ov-agenda')">✕</button></div>
+    <div class="ov-body">
+      <input type="hidden" id="ag-id">
+      <div class="fld"><label>Horário previsto</label><input id="ag-horario" type="time"></div>
+      <div class="fld"><label>O que você planeja fazer</label><input id="ag-titulo" placeholder="Ex: Conciliação bancária"></div>
+    </div>
+    <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-agenda')">Cancelar</button><button class="btn btn-primary" onclick="salvarAgendaItem()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: LINHA DO TEMPO ═══ -->
+<div class="ov" id="ov-timeline">
+  <div class="ov-box">
+    <div class="ov-head"><div class="ov-title" id="tl-titulo">Linha do tempo</div><button class="icon-btn" onclick="closeOV('ov-timeline')">✕</button></div>
+    <div class="ov-body"><div id="tl-lista"></div></div>
   </div>
 </div>
 
@@ -643,7 +740,7 @@ function irPara(p){
   document.querySelectorAll('.sb-nav-item').forEach(el=>el.classList.toggle('on', el.dataset.page===p));
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('on'));
   document.getElementById('page-'+p).classList.add('on');
-  document.getElementById('topbar-title').textContent = {home:'Início',equipe:'Painel ao vivo',aprovacoes:'Aprovações',demandas:'Central de Demandas',individual:'Meu desempenho',relatorios:'Relatórios',admin:'Administração'}[p];
+  document.getElementById('topbar-title').textContent = {home:'Início',equipe:'Painel ao vivo',aprovacoes:'Aprovações',demandas:'Central de Demandas',individual:'Meu desempenho',relatorios:'Relatórios',admin:'Administração',privacidade:'Privacidade'}[p];
   if(p==='equipe') renderEquipe();
   if(p==='aprovacoes') renderAprovacoes();
   if(p==='demandas') renderDemandas();
@@ -702,14 +799,18 @@ function tickTimer(){
   }
   el.textContent = fmtTempo(decorridoSeg);
 
+  const badge = document.getElementById('timer-desvio-badge');
   const padraoMin = EXEC_ATUAL.atividades?.tempo_padrao_min;
   if(padraoMin && EXEC_ATUAL.status==='em_andamento'){
     const desvioPct = Math.round((decorridoSeg/60 - padraoMin)/padraoMin*100);
-    if(desvioPct >= 30 && Date.now()-ULTIMO_ALERTA_DESVIO > 5*60*1000){
-      ULTIMO_ALERTA_DESVIO = Date.now();
-      notificar('Atividade fora do padrão', (EXEC_ATUAL.atividades?.nome||'Atividade')+' já passou '+desvioPct+'% do tempo padrão.');
-    }
-  }
+    if(desvioPct >= 30){
+      if(badge) badge.innerHTML = `<span class="desvio-badge">${ico('alert',11)} +${desvioPct}% do tempo padrão</span>`;
+      if(Date.now()-ULTIMO_ALERTA_DESVIO > 5*60*1000){
+        ULTIMO_ALERTA_DESVIO = Date.now();
+        notificar('Atividade fora do padrão', (EXEC_ATUAL.atividades?.nome||'Atividade')+' já passou '+desvioPct+'% do tempo padrão.');
+      }
+    } else if(badge){ badge.innerHTML = ''; }
+  } else if(badge){ badge.innerHTML = ''; }
 }
 
 function renderTimerCard(){
@@ -735,6 +836,7 @@ function renderTimerCard(){
     <div class="nome">${nome}</div>
     <div class="relogio" id="timer-relogio">00:00:00</div>
     <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}</div>
+    <div id="timer-desvio-badge"></div>
     <div class="actions">
       ${EXEC_ATUAL.status==='pausado'
         ? `<button class="btn" onclick="retomar()">${ico('play',15)} Retomar</button>`
@@ -752,18 +854,18 @@ async function revisarDevolvida(){
 }
 
 /* ═══════════ NOVA ATIVIDADE ═══════════ */
-let NOVA_EXTRAORDINARIA = false;
+let TIPO_EXTRA_ATUAL = null; // null=normal, 'extraordinario', 'estrategico'
 let SETOR_SEL = null;
-async function abrirNovaAtividade(extra){
-  NOVA_EXTRAORDINARIA = !!extra;
-  document.getElementById('nova-titulo').textContent = extra ? 'Atividade extraordinária' : 'Nova atividade';
-  document.getElementById('nova-normal').classList.toggle('hidden', extra);
-  document.getElementById('nova-extra').classList.toggle('hidden', !extra);
+async function abrirNovaAtividade(tipoExtra){
+  TIPO_EXTRA_ATUAL = tipoExtra || null;
+  document.getElementById('nova-titulo').textContent = tipoExtra==='estrategico' ? 'Atividade estratégica' : tipoExtra==='extraordinario' ? 'Atividade extraordinária' : 'Nova atividade';
+  document.getElementById('nova-normal').classList.toggle('hidden', !!tipoExtra);
+  document.getElementById('nova-extra').classList.toggle('hidden', !tipoExtra);
   // BUGFIX: abre o modal já com um estado visível (nunca em branco) e só
   // depois preenche — antes o modal só aparecia no fim, então qualquer
   // demora/erro no carregamento deixava a janela "vazia" sem explicação.
   document.getElementById('ov-nova').classList.add('on');
-  if(!extra){
+  if(!tipoExtra){
     document.getElementById('nova-setor-tabs').innerHTML = '';
     document.getElementById('nova-ativ-list').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Carregando atividades…</div>';
     if(!SETORES.length || !ATIVIDADES.length) await carregarCatalogo();
@@ -801,7 +903,7 @@ async function iniciarAtividade(atividadeId){
 async function iniciarExtraordinaria(){
   if(EXEC_ATUAL){ toast('Finalize a atividade atual antes de iniciar outra.'); return; }
   const payload = {
-    usuario_id:ME.id, tipo:'extraordinario',
+    usuario_id:ME.id, tipo: TIPO_EXTRA_ATUAL || 'extraordinario',
     extra_o_que: document.getElementById('ext-o-que').value.trim(),
     extra_por_que: document.getElementById('ext-por-que').value.trim(),
     extra_quem_solicitou: document.getElementById('ext-quem').value.trim(),
@@ -858,6 +960,8 @@ function abrirFinalizar(){
   document.getElementById('fin-anexo-arquivo').value=''; document.getElementById('fin-anexo-status').textContent='';
   document.getElementById('fin-retrabalho').checked=false;
   document.getElementById('fin-retrabalho-motivo-wrap').classList.add('hidden');
+  document.getElementById('fin-melhoria').checked=false; document.getElementById('fin-melhoria-texto').value='';
+  document.getElementById('fin-melhoria-wrap').classList.add('hidden');
   document.getElementById('ov-finalizar').classList.add('on');
 }
 async function confirmarFinalizar(){
@@ -894,6 +998,7 @@ async function confirmarFinalizar(){
   };
   if(EXEC_ATUAL.atividades?.requer_aprovacao) patch.status = 'aguardando_validacao';
   if(isRetrabalho){ patch.tipo='retrabalho'; patch.motivo_retrabalho = document.getElementById('fin-retrabalho-motivo').value; }
+  if(document.getElementById('fin-melhoria').checked) patch.sugestao_melhoria = document.getElementById('fin-melhoria-texto').value.trim() || null;
   const { error } = await Q.from('execucoes').update(patch).eq('id',EXEC_ATUAL.id);
   if(error){ toast('Erro: '+error.message); return; }
   if(EXEC_ATUAL.solicitacao_id){
@@ -944,6 +1049,7 @@ async function iniciarSolicitacaoComoAtividade(id){
 /* ═══════════ HOJE ═══════════ */
 async function renderHoje(){
   renderDemandasSetorHome();
+  renderAgendaDia();
   const inicioHoje = new Date(); inicioHoje.setHours(0,0,0,0);
   const { data } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',ME.id).gte('criado_em', inicioHoje.toISOString()).order('criado_em',{ascending:false});
   document.getElementById('hoje-tbody').innerHTML = (data||[]).map(e=>{
@@ -952,6 +1058,41 @@ async function renderHoje(){
     const statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : '<span class="pill pill-blue">Em andamento</span>';
     return `<tr><td>${nome}</td><td>${e.tipo}</td><td>${tempo}</td><td>${statusPill}</td></tr>`;
   }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Nenhuma atividade hoje.</td></tr>';
+}
+
+/* ═══════════ PLANEJAMENTO DO DIA (agenda) ═══════════ */
+async function renderAgendaDia(){
+  const hoje = new Date().toISOString().slice(0,10);
+  const { data } = await Q.from('agenda_dia').select('*').eq('usuario_id',ME.id).eq('data',hoje).order('horario_previsto',{ascending:true});
+  const lista = data||[];
+  document.getElementById('agenda-tbody').innerHTML = lista.map(a=>`<tr>
+    <td>${a.horario_previsto?a.horario_previsto.slice(0,5):'—'}</td>
+    <td style="${a.concluido?'text-decoration:line-through;color:var(--muted)':''}">${a.titulo}</td>
+    <td><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" style="width:auto" ${a.concluido?'checked':''} onchange="toggleConcluidoAgenda('${a.id}',${a.concluido})"> feito</label></td>
+    <td><button class="btn btn-muted" style="padding:4px 8px" onclick="deleteAgendaItem('${a.id}')">✕</button></td>
+  </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Nada planejado ainda pra hoje.</td></tr>';
+}
+function abrirAgendaItem(){
+  document.getElementById('ag-id').value=''; document.getElementById('ag-horario').value=''; document.getElementById('ag-titulo').value='';
+  document.getElementById('ov-agenda').classList.add('on');
+}
+async function salvarAgendaItem(){
+  const titulo = document.getElementById('ag-titulo').value.trim();
+  if(!titulo){ toast('Descreva o que você planeja fazer.'); return; }
+  const horario_previsto = document.getElementById('ag-horario').value || null;
+  const { error } = await Q.from('agenda_dia').insert({usuario_id:ME.id, titulo, horario_previsto, data:new Date().toISOString().slice(0,10)});
+  if(error){ toast('Erro: '+error.message); return; }
+  closeOV('ov-agenda'); renderAgendaDia(); toast('Adicionado ao planejamento de hoje.');
+}
+async function toggleConcluidoAgenda(id, atual){
+  const { error } = await Q.from('agenda_dia').update({concluido:!atual}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  renderAgendaDia();
+}
+async function deleteAgendaItem(id){
+  const { error } = await Q.from('agenda_dia').delete().eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  renderAgendaDia();
 }
 
 /* ═══════════ PAINEL AO VIVO (equipe) ═══════════ */
@@ -964,12 +1105,26 @@ async function renderEquipe(){
   const execPorUsuario = {}; (execs||[]).forEach(e=>execPorUsuario[e.usuario_id]=e);
   const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
 
+  // Detector de ociosidade: pra quem está "Livre", olha quando terminou a última
+  // atividade concluída nas últimas 24h — sem cobrar, só informar.
+  const inicio24h = new Date(Date.now()-24*3600*1000).toISOString();
+  const idsLivres = (usuarios||[]).filter(u=>!execPorUsuario[u.id]).map(u=>u.id);
+  const ultimoFimPorUsuario = {};
+  if(idsLivres.length){
+    const { data: concluidasRecentes } = await Q.from('execucoes').select('usuario_id,fim').eq('status','concluido').in('usuario_id',idsLivres).gte('fim',inicio24h).order('fim',{ascending:false});
+    (concluidasRecentes||[]).forEach(e=>{ if(!ultimoFimPorUsuario[e.usuario_id]) ultimoFimPorUsuario[e.usuario_id]=e.fim; });
+  }
+
   document.getElementById('equipe-tbody').innerHTML = (usuarios||[]).map(u=>{
     const e = execPorUsuario[u.id];
     const nomeAtiv = e ? (e.atividades?.nome || (e.tipo==='extraordinario'?'Extraordinária':'Atividade')) : '—';
-    const status = e ? (e.status==='pausado'?'<span class="pill pill-gold">Pausado</span>':'<span class="pill pill-blue">Em andamento</span>') : '<span class="pill pill-muted">Livre</span>';
+    let status = e ? (e.status==='pausado'?'<span class="pill pill-gold">Pausado</span>':'<span class="pill pill-blue">Em andamento</span>') : '<span class="pill pill-muted">Livre</span>';
     let tempo = '—';
     if(e){ const seg=(Date.now()-new Date(e.inicio).getTime())/1000-(e.tempo_pausado_seg||0); tempo = fmtTempo(seg); }
+    else if(ultimoFimPorUsuario[u.id]){
+      const segOcioso = (Date.now()-new Date(ultimoFimPorUsuario[u.id]).getTime())/1000;
+      if(segOcioso >= 45*60) status += ` <span class="pill pill-red" style="margin-left:4px">sem atividade há ${fmtTempo(segOcioso).slice(0,5)}h</span>`;
+    }
     return `<tr><td>${u.nome}</td><td>${setorNome[u.setor_id]||'—'}</td><td>${nomeAtiv}</td><td>${status}</td><td>${tempo}</td></tr>`;
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Ninguém na sua equipe ainda.</td></tr>';
 }
@@ -986,7 +1141,9 @@ async function renderAprovacoes(){
     const nome = e.atividades?.nome || 'Extraordinária';
     const resumo = Object.entries(e.resultado||{}).map(([k,v])=>k+': '+v).join(' · ') || e.observacao || '—';
     return `<tr><td>${e.usuarios?.nome||'—'}</td><td>${nome}</td><td>${new Date(e.fim).toLocaleString('pt-BR')}</td><td style="max-width:260px">${resumo}</td>
-      <td style="white-space:nowrap"><button class="btn btn-primary" style="padding:6px 10px" onclick="aprovarExecucao('${e.id}')">${ico('check',13)}</button>
+      <td style="white-space:nowrap">
+      <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirLinhaDoTempo('${e.id}')">Ver linha do tempo</button>
+      <button class="btn btn-primary" style="padding:6px 10px" onclick="aprovarExecucao('${e.id}')">${ico('check',13)}</button>
       <button class="btn btn-danger" style="padding:6px 10px" onclick="abrirDevolver('${e.id}')">${ico('close',13)}</button></td></tr>`;
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Nada aguardando validação.</td></tr>';
 }
@@ -1010,12 +1167,57 @@ async function confirmarDevolucao(){
 }
 
 /* ═══════════ INDIVIDUAL ═══════════ */
+/* Índice de Eficiência: 25% qualidade (inverso do retrabalho) + 25% prazo +
+   25% volume (contra o próprio período anterior, não contra colegas — o
+   documento pede pra comparar a pessoa com sua própria evolução) + 25%
+   consistência (inverso do desvio médio de tempo). */
+function calcularIE(concluidas, concluidasAnteriorCount){
+  if(!concluidas.length) return null;
+  const dentroPrazo = concluidas.filter(e=>{
+    const p=e.atividades?.tempo_padrao_min; if(!p) return true;
+    const seg=(new Date(e.fim)-new Date(e.inicio))/1000-(e.tempo_pausado_seg||0);
+    return seg<=p*60*1.15;
+  }).length;
+  const prazoPct = Math.round(dentroPrazo/concluidas.length*100);
+  const retrabalhoN = concluidas.filter(e=>e.tipo==='retrabalho').length;
+  const qualidadePct = Math.round((1-retrabalhoN/concluidas.length)*100);
+  const volumePct = concluidasAnteriorCount>0 ? Math.min(100,Math.round(concluidas.length/concluidasAnteriorCount*100)) : 100;
+  const desvios = concluidas.filter(e=>e.atividades?.tempo_padrao_min).map(e=>{
+    const p=e.atividades.tempo_padrao_min; const seg=(new Date(e.fim)-new Date(e.inicio))/1000-(e.tempo_pausado_seg||0);
+    return Math.abs((seg/60-p)/p*100);
+  });
+  const desvioMedio = desvios.length ? desvios.reduce((a,b)=>a+b,0)/desvios.length : 0;
+  const consistenciaPct = Math.max(0,Math.round(100-Math.min(100,desvioMedio)));
+  const ie = Math.round(qualidadePct*0.25 + prazoPct*0.25 + volumePct*0.25 + consistenciaPct*0.25);
+  return { ie, prazoPct, qualidadePct, volumePct, consistenciaPct };
+}
+function classificarIE(ie){
+  if(ie>=90) return {texto:'Excelente', cor:'var(--green)'};
+  if(ie>=75) return {texto:'Muito bom', cor:'var(--accent)'};
+  if(ie>=55) return {texto:'Atenção', cor:'var(--gold)'};
+  return {texto:'Necessita desenvolvimento', cor:'var(--red)'};
+}
+function calcularProducaoHora(concluidas){
+  let totalQtd=0, totalSeg=0;
+  concluidas.forEach(e=>{
+    const campo = e.atividades?.campo_quantidade; if(!campo) return;
+    const v = parseFloat(e.resultado?.[campo]); if(isNaN(v)) return;
+    totalQtd += v;
+    totalSeg += Math.max(0,(new Date(e.fim)-new Date(e.inicio))/1000-(e.tempo_pausado_seg||0));
+  });
+  return totalSeg>0 ? totalQtd/(totalSeg/3600) : null;
+}
 async function renderIndividual(){
   const inicio30 = new Date(); inicio30.setDate(inicio30.getDate()-30);
-  const { data } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',ME.id).gte('criado_em',inicio30.toISOString()).order('criado_em',{ascending:false});
-  const lista = data||[];
+  const inicio60 = new Date(); inicio60.setDate(inicio60.getDate()-60);
+  const { data } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,campo_quantidade)').eq('usuario_id',ME.id).gte('criado_em',inicio60.toISOString()).order('criado_em',{ascending:false});
+  const todas = data||[];
+  const lista = todas.filter(e=>new Date(e.criado_em)>=inicio30);
+  const listaAnterior = todas.filter(e=>new Date(e.criado_em)<inicio30);
   const concluidas = lista.filter(e=>e.status==='concluido');
+  const concluidasAnterior = listaAnterior.filter(e=>e.status==='concluido');
   const segTotal = concluidas.reduce((s,e)=> s + Math.max(0,(new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)), 0);
+  const segTotalAnterior = concluidasAnterior.reduce((s,e)=> s + Math.max(0,(new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)), 0);
   const dentroPrazo = concluidas.filter(e=>{
     const padrao = e.atividades?.tempo_padrao_min; if(!padrao) return true;
     const segAtiv = (new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0);
@@ -1024,19 +1226,55 @@ async function renderIndividual(){
   const retrabalho = lista.filter(e=>e.tipo==='retrabalho').length;
   const pctPrazo = concluidas.length ? Math.round(dentroPrazo/concluidas.length*100) : 0;
   const pctRetrabalho = lista.length ? Math.round(retrabalho/lista.length*100) : 0;
+  const segExtra = lista.filter(e=>e.tipo==='extraordinario' && e.fim).reduce((s,e)=>s+Math.max(0,(new Date(e.fim)-new Date(e.inicio))/1000-(e.tempo_pausado_seg||0)),0);
+
+  const { data: pausasReuniao } = await Q.from('pausas').select('inicio,fim,execucoes!inner(usuario_id)').eq('motivo','Reunião').eq('execucoes.usuario_id',ME.id).not('fim','is',null).gte('inicio',inicio30.toISOString());
+  const segReuniao = (pausasReuniao||[]).reduce((s,p)=>s+Math.max(0,(new Date(p.fim)-new Date(p.inicio))/1000),0);
+
+  const variacaoProdutividade = segTotalAnterior>0 ? Math.round((segTotal-segTotalAnterior)/segTotalAnterior*100) : null;
+  const ieInfo = calcularIE(concluidas, concluidasAnterior.length);
+  const producaoHora = calcularProducaoHora(concluidas);
 
   document.getElementById('individual-kpis').innerHTML = `
-    <div class="card"><div class="card-title">Horas produtivas (30d)</div><div class="kpi-val">${fmtTempo(segTotal).slice(0,5)}h</div></div>
+    <div class="card"><div class="card-title">Horas produtivas (30d)</div><div class="kpi-val">${fmtTempo(segTotal).slice(0,5)}h</div>${variacaoProdutividade!==null?`<div class="kpi-sub">${variacaoProdutividade>=0?'+':''}${variacaoProdutividade}% vs período anterior</div>`:''}</div>
     <div class="card"><div class="card-title">Atividades concluídas</div><div class="kpi-val">${concluidas.length}</div></div>
     <div class="card"><div class="card-title">Dentro do prazo</div><div class="kpi-val" style="color:${pctPrazo>=85?'var(--green)':'var(--gold)'}">${pctPrazo}%</div></div>
-    <div class="card"><div class="card-title">Retrabalho</div><div class="kpi-val" style="color:${pctRetrabalho<=5?'var(--green)':'var(--red)'}">${pctRetrabalho}%</div></div>`;
+    <div class="card"><div class="card-title">Retrabalho</div><div class="kpi-val" style="color:${pctRetrabalho<=5?'var(--green)':'var(--red)'}">${pctRetrabalho}%</div></div>
+    <div class="card"><div class="card-title">Horas extraordinárias</div><div class="kpi-val" style="color:var(--gold)">${fmtHoras(segExtra)}</div></div>
+    <div class="card"><div class="card-title">Tempo em reuniões</div><div class="kpi-val">${fmtHoras(segReuniao)}</div></div>
+    ${producaoHora!==null?`<div class="card"><div class="card-title">Produção por hora</div><div class="kpi-val">${producaoHora.toFixed(1)}</div></div>`:''}
+    ${ieInfo?`<div class="card"><div class="card-title">Índice de Eficiência</div><div class="kpi-val" style="color:${classificarIE(ieInfo.ie).cor}">${ieInfo.ie}</div><div class="kpi-sub">${classificarIE(ieInfo.ie).texto}</div></div>`:''}`;
 
   document.getElementById('individual-tbody').innerHTML = lista.slice(0,40).map(e=>{
-    const nome = e.atividades?.nome || (e.tipo==='extraordinario'?'Extraordinária':'Atividade');
+    const nome = e.atividades?.nome || (e.tipo==='extraordinario'?'Extraordinária':e.tipo==='estrategico'?'Estratégica':'Atividade');
     const tempo = e.fim ? fmtTempo((new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)) : '—';
-    const status = e.status==='concluido'?'<span class="pill pill-green">Concluída</span>':e.status==='pausado'?'<span class="pill pill-gold">Pausada</span>':'<span class="pill pill-blue">Em andamento</span>';
-    return `<tr><td>${new Date(e.criado_em).toLocaleDateString('pt-BR')}</td><td>${nome}</td><td>${e.tipo}</td><td>${tempo}</td><td>${status}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Sem histórico ainda.</td></tr>';
+    const status = e.status==='concluido'?'<span class="pill pill-green">Concluída</span>':e.status==='pausado'?'<span class="pill pill-gold">Pausada</span>':e.status==='aguardando_validacao'?'<span class="pill pill-gold">Aguardando validação</span>':'<span class="pill pill-blue">Em andamento</span>';
+    return `<tr><td>${new Date(e.criado_em).toLocaleDateString('pt-BR')}</td><td>${nome}</td><td>${e.tipo}</td><td>${tempo}</td><td>${status}</td><td><button class="btn btn-muted" style="padding:4px 8px;font-size:11.5px" onclick="abrirLinhaDoTempo('${e.id}')">Linha do tempo</button></td></tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Sem histórico ainda.</td></tr>';
+}
+
+/* ═══════════ LINHA DO TEMPO ═══════════ */
+async function abrirLinhaDoTempo(execucaoId){
+  const { data: e, error } = await Q.from('execucoes').select('*, atividades(nome), usuarios!execucoes_usuario_id_fkey(nome)').eq('id',execucaoId).single();
+  if(error){ toast('Erro: '+error.message); return; }
+  const { data: pausas } = await Q.from('pausas').select('*').eq('execucao_id',execucaoId).order('inicio',{ascending:true});
+  document.getElementById('tl-titulo').textContent = e.atividades?.nome || 'Atividade extraordinária';
+  const eventos = [];
+  eventos.push({t:e.criado_em, txt:`<b>Criada</b>${e.usuarios?.nome?' — '+e.usuarios.nome:''}`});
+  eventos.push({t:e.inicio, txt:'<b>Iniciada</b>'});
+  (pausas||[]).forEach(p=>{
+    eventos.push({t:p.inicio, txt:`<b>Pausada</b> — ${p.motivo}`});
+    if(p.fim) eventos.push({t:p.fim, txt:'<b>Retomada</b>'});
+  });
+  if(e.status==='devolvida') eventos.push({t:e.atualizado_em||e.fim, txt:`<b>Devolvida</b> — ${e.motivo_devolucao||'sem motivo informado'}`});
+  if(e.fim) eventos.push({t:e.fim, txt:'<b>Finalizada</b>'+(e.observacao?' — '+e.observacao:'')});
+  if(e.anexos?.length) eventos.push({t:e.fim, txt:`<b>${e.anexos.length} anexo(s)</b> adicionado(s)`});
+  if(e.aprovado_em) eventos.push({t:e.aprovado_em, txt:'<b>Gestor aprovou</b>'});
+  eventos.sort((a,b)=>new Date(a.t)-new Date(b.t));
+  document.getElementById('tl-lista').innerHTML = eventos.map(ev=>
+    `<div class="tl-item"><div class="tl-time">${ev.t?new Date(ev.t).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—'}</div><div class="tl-txt">${ev.txt}</div></div>`
+  ).join('');
+  document.getElementById('ov-timeline').classList.add('on');
 }
 
 /* ═══════════ CENTRAL DE DEMANDAS ═══════════ */
@@ -1056,10 +1294,15 @@ async function renderDemandas(){
     const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
     const origemTag = s.firebase_ticket_id ? ' <span class="pill pill-muted" style="font-size:9px">DemandasGR</span>' : '';
     const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
+    const podeCancelar = s.status!=='cancelada' && s.status!=='concluida' && DEM_ABA==='enviadas';
+    const podeApagar = isAdmin() && s.status==='aberta';
     return `<tr>
     <td>${assuntoLinha}${origemTag}</td><td>${solicitante} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td><td>${s.responsavel?.nome||'—'}</td>
     <td>${s.prioridade}</td><td>${s.prazo_horas}h</td><td>${statusPill(s.status)}</td>
-    <td>${s.status==='cancelada'||s.status==='concluida'||DEM_ABA==='recebidas' ? '' : `<button class="btn btn-muted" style="padding:5px 9px" onclick="cancelarSolicitacao('${s.id}')">Cancelar</button>`}</td>
+    <td style="white-space:nowrap">
+      ${podeCancelar?`<button class="btn btn-muted" style="padding:5px 9px" onclick="cancelarSolicitacao('${s.id}')">Cancelar</button>`:''}
+      ${podeApagar?`<button class="btn btn-danger" style="padding:5px 9px" onclick="deleteSolicitacao('${s.id}','${(s.assunto||'').replace(/'/g,"\\'")}')">Apagar</button>`:''}
+    </td>
   </tr>`;
   }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Nenhuma solicitação.</td></tr>';
 }
@@ -1068,9 +1311,20 @@ async function cancelarSolicitacao(id){
   if(error){ toast('Erro: '+error.message); return; }
   renderDemandas();
 }
+async function deleteSolicitacao(id, assunto){
+  if(!confirm(`Apagar a demanda "${assunto}" definitivamente?`)) return;
+  const { error } = await Q.from('solicitacoes').delete().eq('id',id);
+  if(error){ toast(mensagemErroExclusao(error)); return; }
+  registrarAuditoria('solicitacoes', id, assunto, 'apagar', null);
+  renderDemandas(); toast('Demanda apagada.');
+}
 function abrirNovaSolicitacao(){
   document.getElementById('sol-destino').innerHTML = SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
   document.getElementById('sol-assunto').value=''; document.getElementById('sol-descricao').value=''; document.getElementById('sol-prazo').value=24;
+  // Urgente exige autorização do gestor — colaborador comum nem vê essa opção.
+  const opcoes = [['baixa','Baixa'],['normal','Normal'],['alta','Alta']];
+  if(podeVerEquipe()) opcoes.push(['urgente','Urgente']);
+  document.getElementById('sol-prioridade').innerHTML = opcoes.map(([v,l])=>`<option value="${v}" ${v==='normal'?'selected':''}>${l}</option>`).join('');
   document.getElementById('ov-solicitacao').classList.add('on');
 }
 async function salvarSolicitacao(){
@@ -1109,6 +1363,7 @@ async function salvarSolicitacao(){
 
 /* ═══════════ RELATÓRIOS ═══════════ */
 function fmtHoras(seg){ return (seg/3600).toFixed(1)+'h'; }
+function fmtHorasN(horas){ return (horas||0).toFixed(1)+'h'; }
 /* Escopo de visão dos Relatórios: admin vê a empresa toda; coordenador/
    supervisor/gerente/diretoria vêem só a própria equipe (mesmo setor);
    colaborador vê só o que é dele. Null = sem filtro (admin). */
@@ -1121,35 +1376,91 @@ async function escopoRelatorioIds(){
   }
   return [ME.id];
 }
+function resolverPeriodoRelatorio(){
+  const sel = document.getElementById('rel-periodo')?.value || '30';
+  let inicio, fim, inicioAnt, fimAnt;
+  if(sel==='mes_passado'){
+    const hoje = new Date();
+    fim = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    inicio = new Date(hoje.getFullYear(), hoje.getMonth()-1, 1);
+    fimAnt = inicio;
+    inicioAnt = new Date(hoje.getFullYear(), hoje.getMonth()-2, 1);
+  } else {
+    const dias = parseInt(sel)||30;
+    fim = new Date();
+    inicio = new Date(); inicio.setDate(inicio.getDate()-dias);
+    fimAnt = inicio;
+    inicioAnt = new Date(); inicioAnt.setDate(inicioAnt.getDate()-dias*2);
+  }
+  return {inicio, fim, inicioAnt, fimAnt};
+}
 async function renderRelatorios(){
-  const inicio30 = new Date(); inicio30.setDate(inicio30.getDate()-30);
+  const {inicio, fim, inicioAnt, fimAnt} = resolverPeriodoRelatorio();
   const idsEscopo = await escopoRelatorioIds();
   document.getElementById('rel-escopo-label').textContent = idsEscopo===null
     ? 'Mostrando: toda a empresa'
     : (ME.cargo==='colaborador' ? 'Mostrando: suas atividades' : 'Mostrando: sua equipe ('+(SETORES.find(s=>s.id===ME.setor_id)?.nome||'—')+')');
 
-  let qExecs = Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min), usuarios!execucoes_usuario_id_fkey(setor_id)').gte('criado_em',inicio30.toISOString());
+  const ATIV_SEL = 'atividades(nome,tempo_padrao_min,campo_quantidade,meta_retrabalho_pct)';
+  let qExecs = Q.from('execucoes').select(`*, ${ATIV_SEL}, usuarios!execucoes_usuario_id_fkey(setor_id)`).gte('criado_em',inicio.toISOString()).lt('criado_em',fim.toISOString());
   if(idsEscopo) qExecs = qExecs.in('usuario_id', idsEscopo);
-  const { data: execs } = await qExecs;
+  let qExecsAnt = Q.from('execucoes').select(`*, ${ATIV_SEL}`).gte('criado_em',inicioAnt.toISOString()).lt('criado_em',fimAnt.toISOString());
+  if(idsEscopo) qExecsAnt = qExecsAnt.in('usuario_id', idsEscopo);
+  const [{data:execs}, {data:execsAnt}] = await Promise.all([qExecs, qExecsAnt]);
   const lista = execs||[];
+  const listaAnt = execsAnt||[];
   const concluidas = lista.filter(e=>e.status==='concluido'||e.status==='aguardando_validacao');
+  const concluidasAnt = listaAnt.filter(e=>e.status==='concluido'||e.status==='aguardando_validacao');
   const segProdutivo = e => Math.max(0,(new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0));
 
   const segRetrabalho = lista.filter(e=>e.tipo==='retrabalho').reduce((s,e)=>s+(e.fim?segProdutivo(e):0),0);
   const segExtra = lista.filter(e=>e.tipo==='extraordinario').reduce((s,e)=>s+(e.fim?segProdutivo(e):0),0);
   const dentroPrazo = concluidas.filter(e=>{ const p=e.atividades?.tempo_padrao_min; if(!p) return true; return segProdutivo(e) <= p*60*1.15; }).length;
   const pctPrazo = concluidas.length ? Math.round(dentroPrazo/concluidas.length*100) : 0;
+  const deltaConcluidas = concluidasAnt.length>0 ? Math.round((concluidas.length-concluidasAnt.length)/concluidasAnt.length*100) : null;
 
   document.getElementById('rel-kpis').innerHTML = `
-    <div class="card"><div class="card-title">Concluídas (30d)</div><div class="kpi-val">${concluidas.length}</div><div class="kpi-sub">${pctPrazo}% dentro do prazo</div></div>
+    <div class="card"><div class="card-title">Concluídas</div><div class="kpi-val">${concluidas.length}</div><div class="kpi-sub">${pctPrazo}% dentro do prazo${deltaConcluidas!==null?' · '+(deltaConcluidas>=0?'+':'')+deltaConcluidas+'% vs período anterior':''}</div></div>
     <div class="card"><div class="card-title">Horas de retrabalho</div><div class="kpi-val" style="color:var(--red)">${fmtHoras(segRetrabalho)}</div></div>
     <div class="card"><div class="card-title">Horas extraordinárias</div><div class="kpi-val" style="color:var(--gold)">${fmtHoras(segExtra)}</div></div>`;
+
+  // Resumo diário automático (gestor) — só faz sentido pra quem enxerga equipe/empresa.
+  const resumoEl = document.getElementById('rel-resumo-diario');
+  if(podeVerEquipe()){
+    const { data: resumo } = await Q.from('resumos_diarios').select('*').order('data',{ascending:false}).limit(1).maybeSingle();
+    if(resumo){
+      const p = resumo.payload;
+      resumoEl.innerHTML = `<div class="card" style="margin-bottom:16px">
+        <div class="card-title">Resumo automático (${new Date(resumo.data).toLocaleDateString('pt-BR')})</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.9">
+          ${p.concluidas} atividades concluídas · ${p.dentro_prazo_pct!==null?p.dentro_prazo_pct+'% dentro do prazo':'—'} · ${p.atrasadas} atrasadas<br>
+          ${fmtHorasN(p.horas_retrabalho)} de retrabalho · ${fmtHorasN(p.horas_extraordinarias)} em demandas extraordinárias<br>
+          ${p.setor_mais_produtivo?'Setor com mais entregas: <b>'+p.setor_mais_produtivo+'</b> · ':''}${p.maior_gargalo?'Maior gargalo: <b>'+p.maior_gargalo+'</b>':''}
+        </div></div>`;
+    } else resumoEl.innerHTML='';
+  } else resumoEl.innerHTML='';
+
+  // Tipos: planejado / extraordinário / retrabalho / estratégico, em % do tempo total.
+  const porTipo = {planejado:0, extraordinario:0, retrabalho:0, estrategico:0};
+  lista.filter(e=>e.fim).forEach(e=>{ porTipo[e.tipo] = (porTipo[e.tipo]||0) + segProdutivo(e); });
+  const segTipoTotal = Object.values(porTipo).reduce((a,b)=>a+b,0);
+  const TIPO_LABEL = {planejado:'Planejado',extraordinario:'Extraordinário',retrabalho:'Retrabalho',estrategico:'Estratégico'};
+  const TIPO_COR = {planejado:'var(--accent)',extraordinario:'var(--gold)',retrabalho:'var(--red)',estrategico:'var(--green)'};
+  if(segTipoTotal>0){
+    document.getElementById('rel-tipo-bar').innerHTML = `
+      <div style="display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--border)">
+        ${Object.keys(porTipo).map(t=>{ const pct=Math.round(porTipo[t]/segTipoTotal*100); return pct>0?`<div style="width:${pct}%;background:${TIPO_COR[t]};display:flex;align-items:center;justify-content:center;font-size:10.5px;color:#fff;font-weight:700">${pct>=8?pct+'%':''}</div>`:''; }).join('')}
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
+        ${Object.keys(porTipo).map(t=>`<div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:${TIPO_COR[t]};display:inline-block"></span>${TIPO_LABEL[t]}: ${Math.round(porTipo[t]/segTipoTotal*100)}%</div>`).join('')}
+      </div>`;
+  } else document.getElementById('rel-tipo-bar').innerHTML = '<div style="color:var(--muted);font-size:13px">Sem atividades finalizadas neste período.</div>';
 
   // Mapa de gargalos — por atividade
   const porAtividade = {};
   concluidas.filter(e=>e.atividades).forEach(e=>{
     const key = e.atividades.nome;
-    if(!porAtividade[key]) porAtividade[key] = {nome:key, seg:0, n:0, desvios:[], retrabalho:0, padrao:e.atividades.tempo_padrao_min};
+    if(!porAtividade[key]) porAtividade[key] = {nome:key, seg:0, n:0, desvios:[], retrabalho:0, padrao:e.atividades.tempo_padrao_min, metaRetrabalho:e.atividades.meta_retrabalho_pct};
     const s = porAtividade[key];
     s.seg += segProdutivo(e); s.n++;
     if(e.tipo==='retrabalho') s.retrabalho++;
@@ -1159,12 +1470,13 @@ async function renderRelatorios(){
   document.getElementById('rel-gargalos-tbody').innerHTML = gargalos.map(g=>{
     const desvioMedio = g.desvios.length ? Math.round(g.desvios.reduce((a,b)=>a+b,0)/g.desvios.length) : null;
     const pctRetr = Math.round(g.retrabalho/g.n*100);
-    return `<tr><td>${g.nome}</td><td>${fmtHoras(g.seg)}</td><td>${desvioMedio===null?'—':(desvioMedio>=0?'+':'')+desvioMedio+'%'}</td><td>${pctRetr}%</td></tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Sem dados.</td></tr>';
+    const metaTxt = g.metaRetrabalho!=null ? `${pctRetr}% <span style="color:${pctRetr<=g.metaRetrabalho?'var(--green)':'var(--red)'}">(meta ${g.metaRetrabalho}%)</span>` : '—';
+    return `<tr><td>${g.nome}</td><td>${fmtHoras(g.seg)}</td><td>${desvioMedio===null?'—':(desvioMedio>=0?'+':'')+desvioMedio+'%'}</td><td>${pctRetr}%</td><td>${metaTxt}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Sem dados.</td></tr>';
 
   // SLA das solicitações — escopo aqui é sobre quem CUMPRIU o prazo:
   // equipe = solicitações que chegaram pro setor dela; colaborador = as que ele mesmo atendeu.
-  let qSols = Q.from('solicitacoes').select('*, setores!solicitacoes_setor_destino_id_fkey(nome)').eq('status','concluida').gte('criado_em',inicio30.toISOString());
+  let qSols = Q.from('solicitacoes').select('*, setores!solicitacoes_setor_destino_id_fkey(nome)').eq('status','concluida').gte('criado_em',inicio.toISOString()).lt('criado_em',fim.toISOString());
   if(idsEscopo){
     if(ME.cargo==='colaborador') qSols = qSols.eq('responsavel_id', ME.id);
     else qSols = qSols.eq('setor_destino_id', ME.setor_id||'00000000-0000-0000-0000-000000000000');
@@ -1186,7 +1498,7 @@ async function renderRelatorios(){
 
   // Interrupções e dependências — via pausas com setor_relacionado
   const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
-  const { data: pausasRaw } = await Q.from('pausas').select('*, execucoes(usuario_id,usuarios!execucoes_usuario_id_fkey(setor_id,nome))').not('setor_relacionado_id','is',null).not('fim','is',null).gte('inicio',inicio30.toISOString());
+  const { data: pausasRaw } = await Q.from('pausas').select('*, execucoes(usuario_id,usuarios!execucoes_usuario_id_fkey(setor_id,nome))').not('setor_relacionado_id','is',null).not('fim','is',null).gte('inicio',inicio.toISOString()).lt('inicio',fim.toISOString());
   // Filtro de escopo aplicado em memória — pausas não tem usuario_id direto,
   // só via execucoes aninhado, então é mais simples filtrar aqui do que no PostgREST.
   const pausas = idsEscopo ? (pausasRaw||[]).filter(p=>idsEscopo.includes(p.execucoes?.usuario_id)) : pausasRaw;
@@ -1210,6 +1522,72 @@ async function renderRelatorios(){
     `<tr><td>${i.de}</td><td>${i.para}</td><td>${fmtHoras(i.seg)}</td></tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">Sem interrupções registradas.</td></tr>';
   document.getElementById('rel-depend-tbody').innerHTML = Object.values(depend).sort((a,b)=>b.seg-a.seg).map(d=>
     `<tr><td>${d.nome}</td><td>${fmtHoras(d.seg)}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center;color:var(--muted)">Sem dependências registradas.</td></tr>';
+
+  // Índice de Eficiência + produção/hora por colaborador do escopo
+  let qUsuariosEscopo = Q.from('usuarios').select('id,nome,setor_id,custo_hora').eq('ativo',true);
+  if(idsEscopo) qUsuariosEscopo = qUsuariosEscopo.in('id', idsEscopo);
+  const { data: usuariosEscopo } = await qUsuariosEscopo;
+  const concluidasPorUsuario = {}, concluidasAntPorUsuario = {};
+  concluidas.forEach(e=>{ (concluidasPorUsuario[e.usuario_id] ||= []).push(e); });
+  concluidasAnt.forEach(e=>{ (concluidasAntPorUsuario[e.usuario_id] ||= []).push(e); });
+  const linhasIE = (usuariosEscopo||[]).map(u=>{
+    const minhas = concluidasPorUsuario[u.id]||[];
+    const ieInfo = calcularIE(minhas, (concluidasAntPorUsuario[u.id]||[]).length);
+    const producaoHora = calcularProducaoHora(minhas);
+    return { u, ieInfo, producaoHora, n:minhas.length };
+  }).filter(l=>l.n>0).sort((a,b)=>(b.ieInfo?.ie||0)-(a.ieInfo?.ie||0));
+  document.getElementById('rel-ie-tbody').innerHTML = linhasIE.map(l=>
+    `<tr><td>${l.u.nome}</td><td>${setorNome[l.u.setor_id]||'—'}</td><td style="color:${l.ieInfo?classificarIE(l.ieInfo.ie).cor:'var(--muted)'};font-weight:700">${l.ieInfo?l.ieInfo.ie:'—'}</td><td>${l.producaoHora!==null?l.producaoHora.toFixed(1):'—'}</td></tr>`
+  ).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Sem atividades concluídas no período.</td></tr>';
+
+  // Capacidade da equipe (estimativa): pessoas ativas × 8h × dias úteis do período
+  const diasPeriodo = Math.max(1, Math.round((fim-inicio)/86400000));
+  const diasUteis = diasPeriodo * 5/7;
+  const porSetorCapacidade = {};
+  (usuariosEscopo||[]).forEach(u=>{
+    const key = setorNome[u.setor_id]||'—';
+    if(!porSetorCapacidade[key]) porSetorCapacidade[key] = {nome:key, pessoas:0, segUsados:0};
+    porSetorCapacidade[key].pessoas++;
+  });
+  concluidas.forEach(e=>{
+    const key = setorNome[e.usuarios?.setor_id]||'—';
+    if(!porSetorCapacidade[key]) porSetorCapacidade[key] = {nome:key, pessoas:0, segUsados:0};
+    porSetorCapacidade[key].segUsados += segProdutivo(e);
+  });
+  document.getElementById('rel-capacidade-tbody').innerHTML = Object.values(porSetorCapacidade).map(s=>{
+    const horasDisponiveis = s.pessoas * 8 * diasUteis;
+    const horasUsadas = s.segUsados/3600;
+    const ocupacao = horasDisponiveis>0 ? Math.round(horasUsadas/horasDisponiveis*100) : 0;
+    const cor = ocupacao>=90?'var(--red)':ocupacao>=70?'var(--gold)':'var(--green)';
+    return `<tr><td>${s.nome}</td><td>${Math.round(horasDisponiveis)}h</td><td>${horasUsadas.toFixed(1)}h</td><td style="color:${cor};font-weight:700">${ocupacao}%</td></tr>`;
+  }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Sem dados de equipe.</td></tr>';
+
+  // Custo por atividade — só admin (dado sensível: custo/hora por pessoa)
+  const custoCard = document.getElementById('rel-custo-card');
+  if(isAdmin()){
+    custoCard.classList.remove('hidden');
+    const custoHoraPorUsuario = {}; (usuariosEscopo||[]).forEach(u=>{ custoHoraPorUsuario[u.id]=u.custo_hora; });
+    const custoPorAtividade = {};
+    concluidas.filter(e=>e.atividades && custoHoraPorUsuario[e.usuario_id]).forEach(e=>{
+      const key = e.atividades.nome;
+      if(!custoPorAtividade[key]) custoPorAtividade[key] = {nome:key, seg:0, custo:0};
+      const horasE = segProdutivo(e)/3600;
+      custoPorAtividade[key].seg += segProdutivo(e);
+      custoPorAtividade[key].custo += horasE * custoHoraPorUsuario[e.usuario_id];
+    });
+    const linhasCusto = Object.values(custoPorAtividade).sort((a,b)=>b.custo-a.custo);
+    document.getElementById('rel-custo-tbody').innerHTML = linhasCusto.map(c=>
+      `<tr><td>${c.nome}</td><td>${fmtHoras(c.seg)}</td><td>R$ ${c.custo.toFixed(2)}</td></tr>`
+    ).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">Cadastre o custo/hora dos colaboradores em Administração.</td></tr>';
+  } else custoCard.classList.add('hidden');
+
+  // Banco de melhorias sugeridas
+  let qMelhorias = Q.from('execucoes').select('sugestao_melhoria, atividades(nome), usuarios!execucoes_usuario_id_fkey(nome)').not('sugestao_melhoria','is',null).gte('criado_em',inicio.toISOString()).lt('criado_em',fim.toISOString());
+  if(idsEscopo) qMelhorias = qMelhorias.in('usuario_id', idsEscopo);
+  const { data: melhorias } = await qMelhorias;
+  document.getElementById('rel-melhorias-tbody').innerHTML = (melhorias||[]).map(m=>
+    `<tr><td>${m.atividades?.nome||'Extraordinária'}</td><td>${m.usuarios?.nome||'—'}</td><td>${m.sugestao_melhoria}</td></tr>`
+  ).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">Nenhuma sugestão registrada no período.</td></tr>';
 }
 
 /* ═══════════ ADMIN ═══════════ */
@@ -1244,10 +1622,25 @@ async function renderAdmHistorico(){
     <td>${l.acao}</td>
     <td>${l.tabela}${l.registro_nome?' — '+l.registro_nome:''}</td>
     <td style="color:var(--muted);font-size:12px">${l.detalhes?Object.entries(l.detalhes).map(([k,v])=>`${k}: ${v}`).join(', '):''}</td>
-  </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sem registros ainda.</td></tr>';
+    <td><button class="btn btn-muted" style="padding:5px 9px" onclick="deleteLogAuditoria('${l.id}')">Apagar</button></td>
+  </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Sem registros ainda.</td></tr>';
 }
+async function deleteLogAuditoria(id){
+  if(!confirm('Apagar este registro do histórico? Essa ação não pode ser desfeita.')) return;
+  const { error } = await Q.from('log_auditoria').delete().eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  renderAdmHistorico();
+}
+async function limparHistoricoAuditoria(){
+  if(!confirm('Apagar TODO o histórico de auditoria? Essa ação não pode ser desfeita.')) return;
+  const { error } = await Q.from('log_auditoria').delete().not('id','is',null);
+  if(error){ toast('Erro: '+error.message); return; }
+  renderAdmHistorico(); toast('Histórico limpo.');
+}
+let ADM_USUARIOS_CACHE = [];
 async function renderAdmUsuarios(){
   const { data } = await Q.from('usuarios').select('*').order('nome');
+  ADM_USUARIOS_CACHE = data||[];
   const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
   document.getElementById('adm-usuarios-tbody').innerHTML = (data||[]).map(u=>`<tr>
     <td>${u.nome}</td><td>${u.email}</td>
@@ -1260,6 +1653,7 @@ async function renderAdmUsuarios(){
     <td>${u.auth_source||'—'}</td>
     <td>${u.ativo?'<span class="pill pill-green">Ativo</span>':'<span class="pill pill-muted">Inativo</span>'}</td>
     <td style="white-space:nowrap">
+      <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirModalUsuario('${u.id}')">Editar</button>
       <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoUsuario('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
       ${u.auth_user_id?`<button class="btn btn-muted" style="padding:6px 10px" onclick="resetarSenhaUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Redefinir senha</button>`:''}
       <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
@@ -1309,24 +1703,44 @@ async function resetarSenhaUsuario(id, nome){
   }catch(e){ toast('Erro ao redefinir senha: '+e.message); }
 }
 
-function abrirModalUsuario(){
-  document.getElementById('us-id').value='';
-  document.getElementById('us-nome').value=''; document.getElementById('us-email').value='';
-  document.getElementById('us-cargo').value='colaborador';
-  document.getElementById('us-setor').innerHTML = '<option value="">—</option>'+SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
-  document.getElementById('us-origem').value='crm';
-  document.getElementById('us-senha-wrap').classList.add('hidden');
-  document.getElementById('us-origem').onchange = function(){ document.getElementById('us-senha-wrap').classList.toggle('hidden', this.value!=='novo'); };
+function abrirModalUsuario(id){
+  const u = id ? ADM_USUARIOS_CACHE.find(x=>x.id===id) : null;
+  document.getElementById('us-id').value = u?.id||'';
+  document.getElementById('us-nome').value = u?.nome||''; document.getElementById('us-email').value = u?.email||'';
+  document.getElementById('us-cargo').value = u?.cargo||'colaborador';
+  document.getElementById('us-setor').innerHTML = '<option value="">—</option>'+SETORES.map(s=>`<option value="${s.id}" ${u?.setor_id===s.id?'selected':''}>${s.nome}</option>`).join('');
+  document.getElementById('us-custo-hora').value = u?.custo_hora ?? '';
+  const origemWrap = document.getElementById('us-origem').closest('.fld');
+  if(u){
+    // Editando alguém que já existe: origem/senha de login não fazem sentido aqui.
+    origemWrap.classList.add('hidden');
+    document.getElementById('us-senha-wrap').classList.add('hidden');
+  } else {
+    origemWrap.classList.remove('hidden');
+    document.getElementById('us-origem').value='crm';
+    document.getElementById('us-senha-wrap').classList.add('hidden');
+    document.getElementById('us-origem').onchange = function(){ document.getElementById('us-senha-wrap').classList.toggle('hidden', this.value!=='novo'); };
+  }
   document.getElementById('ov-usuario').classList.add('on');
 }
 async function salvarUsuario(){
+  const id = document.getElementById('us-id').value;
   const nome = document.getElementById('us-nome').value.trim();
   const email = document.getElementById('us-email').value.trim().toLowerCase();
   const cargo = document.getElementById('us-cargo').value;
   const setor_id = document.getElementById('us-setor').value || null;
-  const origem = document.getElementById('us-origem').value;
+  const custo_hora = parseFloat(document.getElementById('us-custo-hora').value)||null;
   if(!nome || !email){ toast('Preencha nome e e-mail.'); return; }
 
+  if(id){
+    const { error } = await Q.from('usuarios').update({nome, email, cargo, setor_id, custo_hora}).eq('id',id);
+    if(error){ toast('Erro: '+error.message); return; }
+    registrarAuditoria('usuarios', id, nome, 'editar', null);
+    closeOV('ov-usuario'); renderAdmUsuarios(); toast('Usuário atualizado.');
+    return;
+  }
+
+  const origem = document.getElementById('us-origem').value;
   let auth_source = origem==='novo' ? 'crm' : origem;
   let auth_user_id = null;
 
@@ -1346,7 +1760,7 @@ async function salvarUsuario(){
     }catch(e){ toast('Erro ao criar login: '+e.message); return; }
   }
 
-  const { data:novo, error } = await Q.from('usuarios').insert({nome, email, cargo, setor_id, auth_source, auth_user_id, ativo:true}).select().single();
+  const { data:novo, error } = await Q.from('usuarios').insert({nome, email, cargo, setor_id, custo_hora, auth_source, auth_user_id, ativo:true}).select().single();
   if(error){ toast('Erro: '+error.message); return; }
   registrarAuditoria('usuarios', novo?.id, nome, 'criar', null);
   closeOV('ov-usuario'); renderAdmUsuarios(); toast('Usuário salvo.');
@@ -1387,9 +1801,11 @@ async function deleteSetor(id, nome){
   renderAdmSetores(); toast('Setor apagado.');
 }
 
+let ADM_ATIVIDADES_CACHE = [];
 async function renderAdmAtividades(){
   const { data } = await Q.from('atividades').select('*').order('nome');
   const lista = data||[];
+  ADM_ATIVIDADES_CACHE = lista;
   document.getElementById('adm-atividades-grupos').innerHTML = SETORES.map(s=>{
     const dessesetor = lista.filter(a=>a.setor_id===s.id);
     if(!dessesetor.length) return '';
@@ -1402,6 +1818,7 @@ async function renderAdmAtividades(){
           <td>${a.sla_horas?a.sla_horas+'h':'—'}</td>
           <td>${a.ativo?'<span class="pill pill-green">Ativa</span>':'<span class="pill pill-muted">Inativa</span>'}</td>
           <td style="white-space:nowrap">
+            <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirModalAtividade('${a.id}')">Editar</button>
             <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoAtividade('${a.id}',${a.ativo})">${a.ativo?'Desativar':'Ativar'}</button>
             <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteAtividade('${a.id}','${(a.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
           </td>
@@ -1410,27 +1827,42 @@ async function renderAdmAtividades(){
     </div>`;
   }).join('') || '<div style="text-align:center;color:var(--muted);padding:20px">Nenhuma atividade cadastrada.</div>';
 }
-function abrirModalAtividade(){
-  document.getElementById('at-id').value='';
-  document.getElementById('at-setor').innerHTML = SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
-  document.getElementById('at-nome').value=''; document.getElementById('at-tempo').value=''; document.getElementById('at-campos').value='';
-  document.getElementById('at-sla').value=''; document.getElementById('at-checklist').value=''; document.getElementById('at-aprovacao').checked=false;
+function abrirModalAtividade(id){
+  const a = id ? ADM_ATIVIDADES_CACHE.find(x=>x.id===id) : null;
+  document.getElementById('at-id').value = a?.id||'';
+  document.getElementById('at-setor').innerHTML = SETORES.map(s=>`<option value="${s.id}" ${a?.setor_id===s.id?'selected':''}>${s.nome}</option>`).join('');
+  document.getElementById('at-nome').value = a?.nome||''; document.getElementById('at-tempo').value = a?.tempo_padrao_min||'';
+  document.getElementById('at-campos').value = (a?.campos_resultado||[]).join(', ');
+  document.getElementById('at-campo-qtd').value = a?.campo_quantidade||'';
+  document.getElementById('at-meta-retrabalho').value = a?.meta_retrabalho_pct ?? '';
+  document.getElementById('at-sla').value = a?.sla_horas||''; document.getElementById('at-checklist').value = (a?.checklist||[]).join(', ');
+  document.getElementById('at-aprovacao').checked = !!a?.requer_aprovacao;
   document.getElementById('ov-atividade').classList.add('on');
 }
 async function salvarAtividade(){
+  const id = document.getElementById('at-id').value;
   const setor_id = document.getElementById('at-setor').value;
   const nome = document.getElementById('at-nome').value.trim();
   const tempo_padrao_min = parseInt(document.getElementById('at-tempo').value)||null;
   const sla_horas = parseFloat(document.getElementById('at-sla').value)||null;
   const campos_resultado = document.getElementById('at-campos').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const campo_quantidade = document.getElementById('at-campo-qtd').value.trim() || null;
+  const meta_retrabalho_pct = parseFloat(document.getElementById('at-meta-retrabalho').value)||null;
   const checklist = document.getElementById('at-checklist').value.split(',').map(s=>s.trim()).filter(Boolean);
   const requer_aprovacao = document.getElementById('at-aprovacao').checked;
   if(!nome){ toast('Informe o nome da atividade.'); return; }
-  const { data:nova, error } = await Q.from('atividades').insert({setor_id, categoria:nome, nome, tempo_padrao_min, sla_horas, campos_resultado, checklist, requer_aprovacao}).select().single();
-  if(error){ toast('Erro: '+error.message); return; }
-  registrarAuditoria('atividades', nova?.id, nome, 'criar', null);
+  const payload = {setor_id, categoria:nome, nome, tempo_padrao_min, sla_horas, campos_resultado, campo_quantidade, meta_retrabalho_pct, checklist, requer_aprovacao};
+  if(id){
+    const { error } = await Q.from('atividades').update(payload).eq('id',id);
+    if(error){ toast('Erro: '+error.message); return; }
+    registrarAuditoria('atividades', id, nome, 'editar', null);
+  } else {
+    const { data:nova, error } = await Q.from('atividades').insert(payload).select().single();
+    if(error){ toast('Erro: '+error.message); return; }
+    registrarAuditoria('atividades', nova?.id, nome, 'criar', null);
+  }
   const { data } = await Q.from('atividades').select('*').eq('ativo',true).order('nome'); ATIVIDADES = data||[];
-  closeOV('ov-atividade'); renderAdmAtividades(); toast('Atividade criada.');
+  closeOV('ov-atividade'); renderAdmAtividades(); toast(id?'Atividade atualizada.':'Atividade criada.');
 }
 async function toggleAtivoAtividade(id, ativoAtual){
   const { error } = await Q.from('atividades').update({ativo:!ativoAtual}).eq('id',id);
