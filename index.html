@@ -500,6 +500,31 @@ let PAUSA_ATUAL = null;
 let TIMER_INT = null;
 let DEFERRED_INSTALL = null;
 
+/* ═══════════ CATÁLOGO (setores/atividades) ═══════════
+   BUGFIX: a busca original não checava {error} nenhum — se falhasse (rede
+   instável, conexão fria com o Supabase logo após o login), SETORES/ATIVIDADES
+   ficavam vazios pro resto da sessão sem nenhum aviso, e "Nova atividade"
+   abria com o modal em branco. Isso batia exatamente com o "vez sim vez não"
+   relatado. Agora tenta de novo automaticamente (1x) e avisa se falhar mesmo
+   assim; abrirNovaAtividade() também chama isso de novo se o catálogo estiver
+   vazio na hora de abrir, se autocurando mesmo sem reload de página. */
+async function carregarCatalogo(tentativa){
+  const [rSetores, rAtividades] = await Promise.all([
+    Q.from('setores').select('*').eq('ativo',true).order('nome'),
+    Q.from('atividades').select('*').eq('ativo',true).order('nome')
+  ]);
+  if(rSetores.error || rAtividades.error){
+    console.warn('[carregarCatalogo] erro:', rSetores.error||rAtividades.error);
+    if(!tentativa){
+      await new Promise(r=>setTimeout(r,1200));
+      return carregarCatalogo(1);
+    }
+    toast('Não consegui carregar o catálogo de atividades. Recarregue a página.');
+    return;
+  }
+  SETORES = rSetores.data||[]; ATIVIDADES = rAtividades.data||[];
+}
+
 /* ═══════════ LOGIN ═══════════ */
 async function fazerLogin(){
   const email = document.getElementById('lg-email').value.trim();
@@ -569,11 +594,7 @@ async function iniciarApp(){
   if(podeVerEquipe()){ document.getElementById('nav-aprovacoes').classList.remove('hidden'); document.getElementById('nav-relatorios').classList.remove('hidden'); }
   if(isAdmin()) document.getElementById('nav-admin').classList.remove('hidden');
 
-  const [{data:setores},{data:atividades}] = await Promise.all([
-    Q.from('setores').select('*').eq('ativo',true).order('nome'),
-    Q.from('atividades').select('*').eq('ativo',true).order('nome')
-  ]);
-  SETORES = setores||[]; ATIVIDADES = atividades||[];
+  await carregarCatalogo();
   document.getElementById('pausa-setor-relacionado').innerHTML = '<option value="">—</option>'+SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
 
   await carregarExecucaoAtual();
@@ -717,12 +738,15 @@ async function revisarDevolvida(){
 /* ═══════════ NOVA ATIVIDADE ═══════════ */
 let NOVA_EXTRAORDINARIA = false;
 let SETOR_SEL = null;
-function abrirNovaAtividade(extra){
+async function abrirNovaAtividade(extra){
   NOVA_EXTRAORDINARIA = !!extra;
   document.getElementById('nova-titulo').textContent = extra ? 'Atividade extraordinária' : 'Nova atividade';
   document.getElementById('nova-normal').classList.toggle('hidden', extra);
   document.getElementById('nova-extra').classList.toggle('hidden', !extra);
   if(!extra){
+    // Auto-recuperação: se o catálogo veio vazio (falha silenciosa no boot), tenta de novo aqui.
+    if(!SETORES.length || !ATIVIDADES.length) await carregarCatalogo();
+    if(!SETORES.length){ toast('Não consegui carregar os setores agora. Tente de novo em instantes.'); return; }
     SETOR_SEL = ME.setor_id || (SETORES[0] && SETORES[0].id);
     document.getElementById('nova-setor-tabs').innerHTML = SETORES.map(s=>
       `<div class="setor-tab ${s.id===SETOR_SEL?'on':''}" onclick="selecionarSetorNovo('${s.id}',this)">${s.nome}</div>`).join('');
