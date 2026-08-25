@@ -1069,7 +1069,26 @@ async function carregarSolicitacoesVisiveis(){
 async function assumirSolicitacao(id){
   const { error } = await Q.from('solicitacoes').update({responsavel_id:ME.id, status:'em_andamento', iniciado_em:new Date().toISOString()}).eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
-  toast('Chamado assumido — abra no Demandas pra responder e resolver.');
+  // Mesma regra do Demandas: só vira timer ativo na hora se a pessoa estiver
+  // livre — não força, pra não atropelar uma atividade já em andamento.
+  if(!EXEC_ATUAL){
+    const { data: jaExiste } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').eq('solicitacao_id',id).maybeSingle();
+    if(jaExiste){
+      EXEC_ATUAL = jaExiste; PAUSA_ATUAL = null; renderTimerCard();
+    } else {
+      const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
+      const { data: novaExec, error: execErr } = await Q.from('execucoes').insert({
+        usuario_id: ME.id, tipo:'extraordinario', solicitacao_id: id,
+        extra_o_que: s.assunto, extra_por_que: 'Chamado recebido pelo Demandas',
+        extra_quem_solicitou: s.solicitante_nome_externo||'—',
+        extra_setor_origem: s.origem?.nome||'—'
+      }).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
+      if(!execErr){ EXEC_ATUAL = novaExec; PAUSA_ATUAL = null; renderTimerCard(); }
+    }
+    toast('Chamado assumido — timer iniciado!');
+  } else {
+    toast('Chamado assumido — finalize sua atividade atual pra iniciar o timer dele.');
+  }
   renderAgendaDia();
 }
 function renderLinhaSolicitacao(s){
