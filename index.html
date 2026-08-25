@@ -100,6 +100,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .kpi-sub{font-size:11.5px;color:var(--muted);margin-top:2px}
 
 .tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl-wrap{overflow-x:auto}
 .tbl th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--border)}
 .tbl td{padding:9px 10px;border-bottom:1px solid var(--border)}
 .tbl tr:last-child td{border-bottom:none}
@@ -213,18 +214,18 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         </div>
         <div class="card hidden" id="demandas-setor-card" style="margin-bottom:16px">
           <div class="card-title">Demandas recebidas para o seu setor</div>
-          <table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Prioridade</th><th>Prazo</th><th></th></tr></thead><tbody id="demandas-setor-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Prioridade</th><th>Prazo</th><th></th></tr></thead><tbody id="demandas-setor-tbody"></tbody></table></div>
         </div>
         <div class="card" style="margin-bottom:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
             <div class="card-title" style="margin:0">Planejamento de hoje</div>
             <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirAgendaItem()">+ Adicionar</button>
           </div>
-          <table class="tbl"><thead><tr><th>Horário</th><th>Planejado</th><th></th><th></th></tr></thead><tbody id="agenda-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Horário</th><th>Planejado</th><th></th><th></th></tr></thead><tbody id="agenda-tbody"></tbody></table></div>
         </div>
         <div class="card">
           <div class="card-title">Minhas atividades de hoje</div>
-          <table class="tbl"><thead><tr><th>Atividade</th><th>Tipo</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody id="hoje-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Atividade</th><th>Tipo</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody id="hoje-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -232,7 +233,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="page" id="page-equipe">
         <div class="card">
           <div class="card-title">Agora na empresa</div>
-          <table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Status</th><th>Tempo</th></tr></thead><tbody id="equipe-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Status</th><th>Tempo</th></tr></thead><tbody id="equipe-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -240,7 +241,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="page" id="page-aprovacoes">
         <div class="card">
           <div class="card-title">Aguardando validação</div>
-          <table class="tbl"><thead><tr><th>Colaborador</th><th>Atividade</th><th>Finalizada em</th><th>Resultado</th><th></th></tr></thead><tbody id="aprov-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Colaborador</th><th>Atividade</th><th>Finalizada em</th><th>Resultado</th><th></th></tr></thead><tbody id="aprov-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -258,7 +259,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
                de entrada — reversível facilmente se voltar a fazer sentido. -->
         </div>
         <div class="card">
-          <table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Para</th><th>Responsável</th><th>Prioridade</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody id="dem-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Para</th><th>Responsável</th><th>Prioridade</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody id="dem-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -281,41 +282,41 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="grid grid-2" style="margin-bottom:16px">
           <div class="card">
             <div class="card-title">Mapa de gargalos (atividades)</div>
-            <table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Desvio médio</th><th>Retrabalho</th><th>Meta retrab.</th></tr></thead><tbody id="rel-gargalos-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Desvio médio</th><th>Retrabalho</th><th>Meta retrab.</th></tr></thead><tbody id="rel-gargalos-tbody"></tbody></table></div>
           </div>
           <div class="card">
             <div class="card-title">SLA das solicitações internas</div>
-            <table class="tbl"><thead><tr><th>Setor destino</th><th>Concluídas</th><th>SLA cumprido</th></tr></thead><tbody id="rel-sla-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Setor destino</th><th>Concluídas</th><th>SLA cumprido</th></tr></thead><tbody id="rel-sla-tbody"></tbody></table></div>
           </div>
         </div>
         <div class="grid grid-2" style="margin-bottom:16px">
           <div class="card">
             <div class="card-title">Mapa de interrupções (pausas por outro setor)</div>
-            <table class="tbl"><thead><tr><th>Setor que interrompeu</th><th>Setor interrompido</th><th>Tempo total</th></tr></thead><tbody id="rel-interrup-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Setor que interrompeu</th><th>Setor interrompido</th><th>Tempo total</th></tr></thead><tbody id="rel-interrup-tbody"></tbody></table></div>
           </div>
           <div class="card">
             <div class="card-title">Mapa de dependências (aguardando terceiros)</div>
-            <table class="tbl"><thead><tr><th>Aguardando</th><th>Tempo total</th></tr></thead><tbody id="rel-depend-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Aguardando</th><th>Tempo total</th></tr></thead><tbody id="rel-depend-tbody"></tbody></table></div>
           </div>
         </div>
         <div class="grid grid-2" style="margin-bottom:16px">
           <div class="card">
             <div class="card-title">Índice de Eficiência e produção por hora</div>
-            <table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>IE</th><th>Produção/h</th></tr></thead><tbody id="rel-ie-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>IE</th><th>Produção/h</th></tr></thead><tbody id="rel-ie-tbody"></tbody></table></div>
           </div>
           <div class="card">
             <div class="card-title">Capacidade da equipe (estimada)</div>
-            <table class="tbl"><thead><tr><th>Setor</th><th>Horas disponíveis</th><th>Horas usadas</th><th>Ocupação</th></tr></thead><tbody id="rel-capacidade-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Setor</th><th>Horas disponíveis</th><th>Horas usadas</th><th>Ocupação</th></tr></thead><tbody id="rel-capacidade-tbody"></tbody></table></div>
           </div>
         </div>
         <div class="grid grid-2">
           <div class="card hidden" id="rel-custo-card">
             <div class="card-title">Custo por atividade (admin)</div>
-            <table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Custo estimado</th></tr></thead><tbody id="rel-custo-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Atividade</th><th>Horas</th><th>Custo estimado</th></tr></thead><tbody id="rel-custo-tbody"></tbody></table></div>
           </div>
           <div class="card">
             <div class="card-title">Banco de melhorias sugeridas</div>
-            <table class="tbl"><thead><tr><th>Atividade</th><th>Quem sugeriu</th><th>Sugestão</th></tr></thead><tbody id="rel-melhorias-tbody"></tbody></table>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Atividade</th><th>Quem sugeriu</th><th>Sugestão</th></tr></thead><tbody id="rel-melhorias-tbody"></tbody></table></div>
           </div>
         </div>
       </div>
@@ -325,7 +326,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="grid grid-3" id="individual-kpis" style="margin-bottom:16px"></div>
         <div class="card">
           <div class="card-title">Histórico recente</div>
-          <table class="tbl"><thead><tr><th>Data</th><th>Atividade</th><th>Tipo</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody id="individual-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Atividade</th><th>Tipo</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody id="individual-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -343,7 +344,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <div class="card-title" style="margin:0">Usuários</div>
             <button class="btn btn-primary" onclick="abrirModalUsuario()">+ Novo usuário</button>
           </div>
-          <table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Cargo</th><th>Setor</th><th>Origem login</th><th>Status</th><th></th></tr></thead><tbody id="adm-usuarios-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nome</th><th>E-mail</th><th>Cargo</th><th>Setor</th><th>Origem login</th><th>Status</th><th></th></tr></thead><tbody id="adm-usuarios-tbody"></tbody></table></div>
         </div>
 
         <div id="adm-setores" class="card hidden">
@@ -351,7 +352,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <div class="card-title" style="margin:0">Setores</div>
             <button class="btn btn-primary" onclick="novoSetor()">+ Novo setor</button>
           </div>
-          <table class="tbl"><thead><tr><th>Nome</th><th>Status</th><th></th></tr></thead><tbody id="adm-setores-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nome</th><th>Status</th><th></th></tr></thead><tbody id="adm-setores-tbody"></tbody></table></div>
         </div>
 
         <div id="adm-atividades" class="card hidden">
@@ -367,7 +368,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <div class="card-title" style="margin:0">Histórico (auditoria)</div>
             <button class="btn btn-danger" style="padding:6px 10px" onclick="limparHistoricoAuditoria()">Limpar histórico</button>
           </div>
-          <table class="tbl"><thead><tr><th>Data</th><th>Quem</th><th>Ação</th><th>Registro</th><th>Detalhes</th><th></th></tr></thead><tbody id="adm-historico-tbody"></tbody></table>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Quem</th><th>Ação</th><th>Registro</th><th>Detalhes</th><th></th></tr></thead><tbody id="adm-historico-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -902,8 +903,11 @@ async function abrirNovaAtividade(tipoExtra){
       document.getElementById('nova-ativ-list').innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">Não consegui carregar os setores agora. Feche e tente de novo em instantes.</div>';
       return;
     }
-    SETOR_SEL = ME.setor_id || (SETORES[0] && SETORES[0].id);
-    document.getElementById('nova-setor-tabs').innerHTML = SETORES.map(s=>
+    // Cada usuário (exceto admin) só pode iniciar atividades do próprio setor
+    // — nada de navegar pelas abas e iniciar função de outro departamento.
+    const setoresVisiveis = isAdmin() ? SETORES : SETORES.filter(s=>s.id===ME.setor_id);
+    SETOR_SEL = isAdmin() ? (ME.setor_id || (SETORES[0] && SETORES[0].id)) : ME.setor_id;
+    document.getElementById('nova-setor-tabs').innerHTML = setoresVisiveis.map(s=>
       `<div class="setor-tab ${s.id===SETOR_SEL?'on':''}" onclick="selecionarSetorNovo('${s.id}',this)">${s.nome}</div>`).join('');
     renderAtivList();
   }
@@ -1795,7 +1799,7 @@ async function salvarUsuario(){
       const resp = await fetch(CRM_URL+'/functions/v1/create-user',{
         method:'POST',
         headers:{'Content-Type':'application/json','apikey':CRM_KEY,'Authorization':'Bearer '+(session?.access_token||CRM_KEY)},
-        body: JSON.stringify({nome, email, senha, role:'vendedor'})
+        body: JSON.stringify({name:nome, email, password:senha, role:'vendedor', caller_usuario_id: ME.id})
       });
       const json = await resp.json();
       if(json.error) throw new Error(json.error);
@@ -1855,7 +1859,7 @@ async function renderAdmAtividades(){
     if(!dessesetor.length) return '';
     return `<div class="setor-grupo">
       <div class="setor-grupo-head">${s.nome} <span class="cnt">(${dessesetor.length})</span></div>
-      <table class="tbl"><thead><tr><th>Atividade</th><th>Tempo padrão</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Atividade</th><th>Tempo padrão</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody>
         ${dessesetor.map(a=>`<tr>
           <td>${a.nome}${a.requer_aprovacao?' <span class="pill pill-gold" style="margin-left:4px">aprovação</span>':''}${(a.checklist||[]).length?' <span class="pill pill-blue" style="margin-left:4px">checklist</span>':''}</td>
           <td>${a.tempo_padrao_min?a.tempo_padrao_min+' min':'—'}</td>
@@ -1867,7 +1871,7 @@ async function renderAdmAtividades(){
             <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteAtividade('${a.id}','${(a.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
           </td>
         </tr>`).join('')}
-      </tbody></table>
+      </tbody></table></div>
     </div>`;
   }).join('') || '<div style="text-align:center;color:var(--muted);padding:20px">Nenhuma atividade cadastrada.</div>';
 }
