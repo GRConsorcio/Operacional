@@ -178,6 +178,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <div class="sb-nav-item on" data-page="home" data-ico="home" onclick="irPara('home')"><span>Início</span></div>
     <div class="sb-nav-item hidden" id="nav-equipe" data-page="equipe" data-ico="users" onclick="irPara('equipe')"><span>Painel ao vivo</span></div>
     <div class="sb-nav-item hidden" id="nav-aprovacoes" data-page="aprovacoes" data-ico="checkCircle" onclick="irPara('aprovacoes')"><span>Aprovações</span></div>
+    <a class="sb-nav-item" data-ico="inbox" href="https://grconsorcio.github.io/Demandas/" target="_blank" rel="noopener" style="text-decoration:none"><span>Demandas ↗</span></a>
     <div class="sb-nav-item" data-page="individual" data-ico="chart" onclick="irPara('individual')"><span>Meu desempenho</span></div>
     <div class="sb-nav-item hidden" id="nav-relatorios" data-page="relatorios" data-ico="trending" onclick="irPara('relatorios')"><span>Relatórios</span></div>
     <div class="sb-nav-item hidden" id="nav-admin" data-page="admin" data-ico="settings" onclick="irPara('admin')"><span>Administração</span></div>
@@ -704,6 +705,22 @@ async function iniciarApp(){
   setInterval(()=>{ if(curPage==='equipe') renderEquipe(); }, 15000);
   verificarLembretesAgenda();
   setInterval(verificarLembretesAgenda, 20000);
+  iniciarRealtimeSolicitacoes();
+}
+
+/* ═══════════ REALTIME: avisa quando chega chamado novo do Demandas ═══════════ */
+let CANAL_SOLICITACOES = null;
+function iniciarRealtimeSolicitacoes(){
+  if(CANAL_SOLICITACOES){ sbCrm.removeChannel(CANAL_SOLICITACOES); CANAL_SOLICITACOES=null; }
+  CANAL_SOLICITACOES = sbCrm.channel('produtividade-solicitacoes-'+ME.id)
+    .on('postgres_changes', {event:'INSERT', schema:'produtividade', table:'solicitacoes'}, (payload)=>{
+      const s = payload.new;
+      const visivel = ['admin','gerente','diretoria'].includes(ME.cargo) || s.setor_destino_id===ME.setor_id;
+      if(!visivel) return;
+      notificar('Novo chamado: '+s.assunto, 'Setor: '+(SETORES.find(x=>x.id===s.setor_destino_id)?.nome||'—'));
+      if(curPage==='home') renderAgendaDia();
+    })
+    .subscribe();
 }
 
 let curPage = 'home';
@@ -1033,18 +1050,53 @@ async function deleteExecucao(id){
   toast('Atividade apagada.');
 }
 
-/* ═══════════ PLANEJAMENTO DO DIA (agenda) ═══════════ */
+/* ═══════════ PLANEJAMENTO DO DIA (agenda + chamados do Demandas) ═══════════ */
+const DEMANDAS_URL = 'https://grconsorcio.github.io/Demandas/';
+const numFmtSolicitacao = n => 'GR-'+String(n||0).padStart(5,'0');
+// Visibilidade por hierarquia: admin/gerente/diretoria veem chamados de qualquer
+// setor ("coordenador" do pedido do usuário não existe como cargo no banco,
+// mapeado pra esses dois); supervisor/colaborador só do próprio setor. Em
+// qualquer caso, quem já foi assumido por outra pessoa some da lista.
+async function carregarSolicitacoesVisiveis(){
+  let q = Q.from('solicitacoes').select('*, destino:setores!solicitacoes_setor_destino_id_fkey(nome)').in('status',['aberta','em_andamento','aguardando']);
+  if(!['admin','gerente','diretoria'].includes(ME.cargo)){
+    q = q.eq('setor_destino_id', ME.setor_id||'00000000-0000-0000-0000-000000000000');
+  }
+  q = q.or(`responsavel_id.is.null,responsavel_id.eq.${ME.id}`);
+  const { data } = await q.order('criado_em',{ascending:true});
+  return data||[];
+}
+async function assumirSolicitacao(id){
+  const { error } = await Q.from('solicitacoes').update({responsavel_id:ME.id, status:'em_andamento', iniciado_em:new Date().toISOString()}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  toast('Chamado assumido — abra no Demandas pra responder e resolver.');
+  renderAgendaDia();
+}
+function renderLinhaSolicitacao(s){
+  const horaAbertura = new Date(s.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const assumida = s.responsavel_id===ME.id;
+  const link = DEMANDAS_URL+'?ticket='+s.id;
+  return `<tr>
+    <td>${horaAbertura}</td>
+    <td>🎫 <b>${numFmtSolicitacao(s.numero)}</b> — ${s.assunto} <span style="color:var(--muted);font-size:11px">(${s.destino?.nome||'—'})</span></td>
+    <td>${assumida?'<span class="pill pill-blue">Você assumiu</span>':`<button class="btn btn-muted" style="padding:6px 10px" onclick="assumirSolicitacao('${s.id}')">Assumir</button>`}</td>
+    <td><a href="${link}" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">Abrir ↗</a></td>
+  </tr>`;
+}
 async function renderAgendaDia(){
   const hoje = new Date().toISOString().slice(0,10);
   const { data } = await Q.from('agenda_dia').select('*').eq('usuario_id',ME.id).eq('data',hoje).order('horario_previsto',{ascending:true});
   const lista = data||[];
   AGENDA_HOJE = lista;
-  document.getElementById('agenda-tbody').innerHTML = lista.map(a=>`<tr>
+  const solicitacoes = await carregarSolicitacoesVisiveis();
+  const linhasSolicitacoes = solicitacoes.map(renderLinhaSolicitacao).join('');
+  const linhasPessoais = lista.map(a=>`<tr>
     <td>${a.horario_previsto?a.horario_previsto.slice(0,5):'—'}</td>
     <td style="${a.concluido?'text-decoration:line-through;color:var(--muted)':''}">${a.titulo}</td>
     <td><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" style="width:auto" ${a.concluido?'checked':''} onchange="toggleConcluidoAgenda('${a.id}',${a.concluido})"> feito</label></td>
     <td><button class="btn btn-muted" style="padding:4px 8px" onclick="deleteAgendaItem('${a.id}')">✕</button></td>
-  </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Nada planejado ainda pra hoje.</td></tr>';
+  </tr>`).join('');
+  document.getElementById('agenda-tbody').innerHTML = (linhasSolicitacoes+linhasPessoais) || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Nada planejado ainda pra hoje.</td></tr>';
 }
 function abrirAgendaItem(){
   document.getElementById('ag-id').value=''; document.getElementById('ag-horario').value=''; document.getElementById('ag-titulo').value='';
