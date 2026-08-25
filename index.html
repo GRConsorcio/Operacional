@@ -178,7 +178,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <div class="sb-nav-item on" data-page="home" data-ico="home" onclick="irPara('home')"><span>Início</span></div>
     <div class="sb-nav-item hidden" id="nav-equipe" data-page="equipe" data-ico="users" onclick="irPara('equipe')"><span>Painel ao vivo</span></div>
     <div class="sb-nav-item hidden" id="nav-aprovacoes" data-page="aprovacoes" data-ico="checkCircle" onclick="irPara('aprovacoes')"><span>Aprovações</span></div>
-    <div class="sb-nav-item" data-page="demandas" data-ico="inbox" onclick="irPara('demandas')"><span>Central de Demandas</span></div>
     <div class="sb-nav-item" data-page="individual" data-ico="chart" onclick="irPara('individual')"><span>Meu desempenho</span></div>
     <div class="sb-nav-item hidden" id="nav-relatorios" data-page="relatorios" data-ico="trending" onclick="irPara('relatorios')"><span>Relatórios</span></div>
     <div class="sb-nav-item hidden" id="nav-admin" data-page="admin" data-ico="settings" onclick="irPara('admin')"><span>Administração</span></div>
@@ -212,10 +211,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('estrategico')">+ Atividade estratégica</button>
           </div>
         </div>
-        <div class="card hidden" id="demandas-setor-card" style="margin-bottom:16px">
-          <div class="card-title">Demandas recebidas para o seu setor</div>
-          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Prioridade</th><th>Prazo</th><th></th></tr></thead><tbody id="demandas-setor-tbody"></tbody></table></div>
-        </div>
         <div class="card" style="margin-bottom:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
             <div class="card-title" style="margin:0">Planejamento de hoje</div>
@@ -242,24 +237,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="card">
           <div class="card-title">Aguardando validação</div>
           <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Colaborador</th><th>Atividade</th><th>Finalizada em</th><th>Resultado</th><th></th></tr></thead><tbody id="aprov-tbody"></tbody></table></div>
-        </div>
-      </div>
-
-      <!-- ───── CENTRAL DE DEMANDAS ───── -->
-      <div class="page" id="page-demandas">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-          <div class="setor-tabs" style="margin:0">
-            <div class="setor-tab on" onclick="demTab('recebidas',this)">Recebidas pelo meu setor</div>
-            <div class="setor-tab" onclick="demTab('enviadas',this)">Enviadas por mim</div>
-          </div>
-          <!-- BUGFIX/PEDIDO (2026-08-24): "+ Nova solicitação" removido a pedido do GR —
-               por enquanto abrir demanda continua exclusivamente pelo DemandasGR; o
-               Operacional só recebe/trabalha o que já foi sincronizado de lá. O modal
-               (#ov-solicitacao) e as funções JS continuam intactos, só sem esse botão
-               de entrada — reversível facilmente se voltar a fazer sentido. -->
-        </div>
-        <div class="card">
-          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Assunto</th><th>De</th><th>Para</th><th>Responsável</th><th>Prioridade</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody id="dem-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -513,23 +490,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   </div>
 </div>
 
-<!-- ═══ MODAL: NOVA SOLICITAÇÃO (central de demandas) ═══ -->
-<div class="ov" id="ov-solicitacao">
-  <div class="ov-box">
-    <div class="ov-head"><div class="ov-title">Nova solicitação</div><button class="icon-btn" onclick="closeOV('ov-solicitacao')">✕</button></div>
-    <div class="ov-body">
-      <div class="fld"><label>Destino</label><select id="sol-destino" style="width:100%"></select></div>
-      <div class="fld"><label>Assunto</label><input id="sol-assunto"></div>
-      <div class="fld"><label>Detalhes / informações</label><textarea id="sol-descricao" rows="3" placeholder="O que é preciso, contexto, links, etc."></textarea></div>
-      <div class="fld"><label>Prioridade</label>
-        <select id="sol-prioridade" style="width:100%"><option value="baixa">Baixa</option><option value="normal" selected>Normal</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select>
-      </div>
-      <div class="fld"><label>Prazo (horas)</label><input id="sol-prazo" type="number" value="24"></div>
-    </div>
-    <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-solicitacao')">Cancelar</button><button class="btn btn-primary" onclick="salvarSolicitacao()">Enviar</button></div>
-  </div>
-</div>
-
 <!-- ═══ MODAL: DEVOLVER (aprovação) ═══ -->
 <div class="ov" id="ov-devolver">
   <div class="ov-box">
@@ -552,6 +512,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="fld"><label>O que você planeja fazer</label><input id="ag-titulo" placeholder="Ex: Conciliação bancária"></div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-agenda')">Cancelar</button><button class="btn btn-primary" onclick="salvarAgendaItem()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: LEMBRETE DE COMPROMISSO (som + alerta) ═══ -->
+<div class="ov" id="ov-lembrete">
+  <div class="ov-box">
+    <div class="ov-head"><div class="ov-title">⏰ Compromisso agora</div><button class="icon-btn" onclick="closeOV('ov-lembrete')">✕</button></div>
+    <div class="ov-body">
+      <input type="hidden" id="lb-id">
+      <div style="font-size:17px;font-weight:700;margin-bottom:4px" id="lb-titulo"></div>
+      <div style="color:var(--muted);font-size:13px">Horário previsto: <b id="lb-horario"></b></div>
+    </div>
+    <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-lembrete')">Dispensar</button><button class="btn btn-primary" onclick="confirmarLembreteFeito()">✓ Marcar como feito</button></div>
   </div>
 </div>
 
@@ -723,23 +696,8 @@ async function iniciarApp(){
   if(TIMER_INT) clearInterval(TIMER_INT);
   TIMER_INT = setInterval(tickTimer, 1000);
   setInterval(()=>{ if(curPage==='equipe') renderEquipe(); }, 15000);
-  if(podeVerEquipe()) iniciarRealtimeDemandas();
-}
-
-/* ═══════════ REALTIME: admin/gestor acompanham novas demandas ao vivo ═══════════ */
-let CANAL_DEMANDAS = null;
-function iniciarRealtimeDemandas(){
-  if(CANAL_DEMANDAS){ sbCrm.removeChannel(CANAL_DEMANDAS); CANAL_DEMANDAS = null; }
-  CANAL_DEMANDAS = sbCrm.channel('produtividade-solicitacoes-'+ME.id)
-    .on('postgres_changes', {event:'*', schema:'produtividade', table:'solicitacoes'}, (payload)=>{
-      if(payload.eventType==='INSERT' && (!ME.setor_id || payload.new.setor_destino_id===ME.setor_id || ['gerente','diretoria','admin'].includes(ME.cargo))){
-        notificar('Nova demanda recebida', payload.new.assunto);
-      }
-      if(curPage==='demandas') renderDemandas();
-      if(curPage==='relatorios') renderRelatorios();
-      if(curPage==='home') renderDemandasSetorHome();
-    })
-    .subscribe();
+  verificarLembretesAgenda();
+  setInterval(verificarLembretesAgenda, 20000);
 }
 
 let curPage = 'home';
@@ -748,10 +706,9 @@ function irPara(p){
   document.querySelectorAll('.sb-nav-item').forEach(el=>el.classList.toggle('on', el.dataset.page===p));
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('on'));
   document.getElementById('page-'+p).classList.add('on');
-  document.getElementById('topbar-title').textContent = {home:'Início',equipe:'Painel ao vivo',aprovacoes:'Aprovações',demandas:'Central de Demandas',individual:'Meu desempenho',relatorios:'Relatórios',admin:'Administração',privacidade:'Privacidade'}[p];
+  document.getElementById('topbar-title').textContent = {home:'Início',equipe:'Painel ao vivo',aprovacoes:'Aprovações',individual:'Meu desempenho',relatorios:'Relatórios',admin:'Administração',privacidade:'Privacidade'}[p];
   if(p==='equipe') renderEquipe();
   if(p==='aprovacoes') renderAprovacoes();
-  if(p==='demandas') renderDemandas();
   if(p==='individual') renderIndividual();
   if(p==='relatorios') renderRelatorios();
   if(p==='admin') renderAdmin();
@@ -1042,48 +999,8 @@ async function confirmarFinalizar(){
   toast('Atividade finalizada!');
 }
 
-/* ═══════════ DEMANDAS RECEBIDAS PELO SETOR (viram atividade extraordinária) ═══════════ */
-async function renderDemandasSetorHome(){
-  const card = document.getElementById('demandas-setor-card');
-  if(!ME.setor_id){ card.classList.add('hidden'); return; }
-  const { data } = await Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome)')
-    .eq('setor_destino_id', ME.setor_id).eq('status','aberta').order('criado_em',{ascending:true});
-  const lista = data||[];
-  card.classList.toggle('hidden', lista.length===0);
-  document.getElementById('demandas-setor-tbody').innerHTML = lista.map(s=>{
-    const cor = s.prioridade==='urgente'?'pill-red':s.prioridade==='alta'?'pill-gold':'pill-blue';
-    const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
-    const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
-    const horasDecorridas = (Date.now()-new Date(s.criado_em).getTime())/3600000;
-    const prazoTxt = horasDecorridas >= s.prazo_horas ? `<span class="prazo-badge" style="margin-top:0;padding:3px 8px;font-size:10.5px">${s.prazo_horas}h ESTOURADO</span>` : `${s.prazo_horas}h`;
-    return `<tr><td>${assuntoLinha}</td><td>${solicitante} (${s.origem?.nome||'—'})</td>
-      <td><span class="pill ${cor}">${s.prioridade}</span></td><td>${prazoTxt}</td>
-      <td><button class="btn btn-primary" style="padding:6px 10px" onclick="iniciarSolicitacaoComoAtividade('${s.id}')">${ico('play',13)} Iniciar</button></td></tr>`;
-  }).join('');
-}
-async function iniciarSolicitacaoComoAtividade(id){
-  if(EXEC_ATUAL){ toast('Finalize a atividade atual antes de iniciar outra.'); return; }
-  const { data: sol, error: solErr } = await Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
-  if(solErr){ toast('Erro: '+solErr.message); return; }
-  const { error: updErr } = await Q.from('solicitacoes').update({status:'em_andamento', responsavel_id:ME.id, iniciado_em:new Date().toISOString()}).eq('id',id);
-  if(updErr){ toast('Erro: '+updErr.message); return; }
-  const payload = {
-    usuario_id:ME.id, tipo:'extraordinario', solicitacao_id:id,
-    extra_o_que: sol.descricao ? `${sol.assunto} — ${sol.descricao}` : sol.assunto,
-    extra_por_que: 'Solicitação recebida pela Central de Demandas',
-    extra_quem_solicitou: sol.usuarios?.nome || sol.solicitante_nome_externo || '—',
-    extra_setor_origem: sol.origem?.nome||'—'
-  };
-  const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
-  if(error){ toast('Erro: '+error.message); return; }
-  EXEC_ATUAL = data; PAUSA_ATUAL = null;
-  renderTimerCard(); renderDemandasSetorHome();
-  toast('Demanda iniciada como atividade.');
-}
-
 /* ═══════════ HOJE ═══════════ */
 async function renderHoje(){
-  renderDemandasSetorHome();
   renderAgendaDia();
   const inicioHoje = new Date(); inicioHoje.setHours(0,0,0,0);
   const { data } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',ME.id).gte('criado_em', inicioHoje.toISOString()).order('criado_em',{ascending:false});
@@ -1110,6 +1027,7 @@ async function renderAgendaDia(){
   const hoje = new Date().toISOString().slice(0,10);
   const { data } = await Q.from('agenda_dia').select('*').eq('usuario_id',ME.id).eq('data',hoje).order('horario_previsto',{ascending:true});
   const lista = data||[];
+  AGENDA_HOJE = lista;
   document.getElementById('agenda-tbody').innerHTML = lista.map(a=>`<tr>
     <td>${a.horario_previsto?a.horario_previsto.slice(0,5):'—'}</td>
     <td style="${a.concluido?'text-decoration:line-through;color:var(--muted)':''}">${a.titulo}</td>
@@ -1138,6 +1056,54 @@ async function deleteAgendaItem(id){
   const { error } = await Q.from('agenda_dia').delete().eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
   renderAgendaDia();
+}
+
+/* ═══════════ LEMBRETE DO PLANEJAMENTO (som + notificação do SO) ═══════════
+   Só dispara com o app/aba aberta (mesmo minimizada) — é a Notification API
+   do navegador, não um alarme do sistema operacional de verdade. Se o app
+   for fechado por completo, não tem como avisar. */
+let AGENDA_HOJE = [];
+let LEMBRETES_DISPARADOS = new Set();
+function tocarSomLembrete(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const nota = (freq, inicio, duracao)=>{
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      osc.connect(gain); gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0, ctx.currentTime+inicio);
+      gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime+inicio+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+inicio+duracao);
+      osc.start(ctx.currentTime+inicio); osc.stop(ctx.currentTime+inicio+duracao+0.05);
+    };
+    [880,1108,1318].forEach((freq,i)=>nota(freq, i*0.16, 0.3));
+  }catch(e){ console.warn('[tocarSomLembrete] falhou:', e.message); }
+}
+function verificarLembretesAgenda(){
+  if(!ME) return;
+  const agora = new Date();
+  AGENDA_HOJE.forEach(item=>{
+    if(item.concluido || !item.horario_previsto || LEMBRETES_DISPARADOS.has(item.id)) return;
+    const [h,m] = item.horario_previsto.split(':');
+    const horaAlvo = new Date(); horaAlvo.setHours(+h, +m, 0, 0);
+    if(agora >= horaAlvo){
+      LEMBRETES_DISPARADOS.add(item.id);
+      dispararLembrete(item);
+    }
+  });
+}
+function dispararLembrete(item){
+  tocarSomLembrete();
+  notificar('Compromisso agora: '+item.titulo, 'Horário previsto: '+item.horario_previsto.slice(0,5), {requireInteraction:true, tag:'agenda-'+item.id});
+  document.getElementById('lb-titulo').textContent = item.titulo;
+  document.getElementById('lb-horario').textContent = item.horario_previsto.slice(0,5);
+  document.getElementById('lb-id').value = item.id;
+  document.getElementById('ov-lembrete').classList.add('on');
+}
+async function confirmarLembreteFeito(){
+  const id = document.getElementById('lb-id').value;
+  closeOV('ov-lembrete');
+  await toggleConcluidoAgenda(id, false);
 }
 
 /* ═══════════ PAINEL AO VIVO (equipe) ═══════════ */
@@ -1320,93 +1286,6 @@ async function abrirLinhaDoTempo(execucaoId){
     `<div class="tl-item"><div class="tl-time">${ev.t?new Date(ev.t).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—'}</div><div class="tl-txt">${ev.txt}</div></div>`
   ).join('');
   document.getElementById('ov-timeline').classList.add('on');
-}
-
-/* ═══════════ CENTRAL DE DEMANDAS ═══════════ */
-let DEM_ABA = 'recebidas';
-function demTab(nome, el){
-  DEM_ABA = nome;
-  document.querySelectorAll('#page-demandas .setor-tab').forEach(t=>t.classList.remove('on'));
-  el.classList.add('on');
-  renderDemandas();
-}
-async function renderDemandas(){
-  let q = Q.from('solicitacoes').select('*, usuarios!solicitacoes_solicitante_id_fkey(nome), responsavel:usuarios!solicitacoes_responsavel_id_fkey(nome), origem:setores!solicitacoes_setor_origem_id_fkey(nome), destino:setores!solicitacoes_setor_destino_id_fkey(nome)').order('criado_em',{ascending:false});
-  q = DEM_ABA==='recebidas' ? q.eq('setor_destino_id', ME.setor_id||'00000000-0000-0000-0000-000000000000') : q.eq('solicitante_id', ME.id);
-  const { data } = await q;
-  const statusPill = s=>({aberta:'<span class="pill pill-blue">Aberta</span>',em_andamento:'<span class="pill pill-gold">Em andamento</span>',concluida:'<span class="pill pill-green">Concluída</span>',cancelada:'<span class="pill pill-muted">Cancelada</span>'})[s];
-  document.getElementById('dem-tbody').innerHTML = (data||[]).map(s=>{
-    const solicitante = s.usuarios?.nome || s.solicitante_nome_externo || '—';
-    const origemTag = s.firebase_ticket_id ? ' <span class="pill pill-muted" style="font-size:9px">DemandasGR</span>' : '';
-    const assuntoLinha = s.descricao ? `${s.assunto}<div style="color:var(--muted);font-size:11.5px;margin-top:2px">${s.descricao}</div>` : s.assunto;
-    const podeCancelar = s.status!=='cancelada' && s.status!=='concluida' && DEM_ABA==='enviadas';
-    const podeApagar = isAdmin() && s.status==='aberta';
-    const emAberto = s.status==='aberta' || s.status==='em_andamento';
-    const horasDecorridas = (Date.now()-new Date(s.criado_em).getTime())/3600000;
-    const prazoTxt = (emAberto && horasDecorridas>=s.prazo_horas) ? `<span class="prazo-badge" style="margin-top:0;padding:3px 8px;font-size:10.5px">${s.prazo_horas}h ESTOURADO</span>` : `${s.prazo_horas}h`;
-    return `<tr>
-    <td>${assuntoLinha}${origemTag}</td><td>${solicitante} (${s.origem?.nome||'—'})</td><td>${s.destino?.nome||'—'}</td><td>${s.responsavel?.nome||'—'}</td>
-    <td>${s.prioridade}</td><td>${prazoTxt}</td><td>${statusPill(s.status)}</td>
-    <td style="white-space:nowrap">
-      ${podeCancelar?`<button class="btn btn-muted" style="padding:5px 9px" onclick="cancelarSolicitacao('${s.id}')">Cancelar</button>`:''}
-      ${podeApagar?`<button class="btn btn-danger" style="padding:5px 9px" onclick="deleteSolicitacao('${s.id}','${(s.assunto||'').replace(/'/g,"\\'")}')">Apagar</button>`:''}
-    </td>
-  </tr>`;
-  }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Nenhuma solicitação.</td></tr>';
-}
-async function cancelarSolicitacao(id){
-  const { error } = await Q.from('solicitacoes').update({status:'cancelada'}).eq('id',id);
-  if(error){ toast('Erro: '+error.message); return; }
-  renderDemandas();
-}
-async function deleteSolicitacao(id, assunto){
-  if(!confirm(`Apagar a demanda "${assunto}" definitivamente?`)) return;
-  const { error } = await Q.from('solicitacoes').delete().eq('id',id);
-  if(error){ toast(mensagemErroExclusao(error)); return; }
-  registrarAuditoria('solicitacoes', id, assunto, 'apagar', null);
-  renderDemandas(); toast('Demanda apagada.');
-}
-function abrirNovaSolicitacao(){
-  document.getElementById('sol-destino').innerHTML = SETORES.map(s=>`<option value="${s.id}">${s.nome}</option>`).join('');
-  document.getElementById('sol-assunto').value=''; document.getElementById('sol-descricao').value=''; document.getElementById('sol-prazo').value=24;
-  // Urgente exige autorização do gestor — colaborador comum nem vê essa opção.
-  const opcoes = [['baixa','Baixa'],['normal','Normal'],['alta','Alta']];
-  if(podeVerEquipe()) opcoes.push(['urgente','Urgente']);
-  document.getElementById('sol-prioridade').innerHTML = opcoes.map(([v,l])=>`<option value="${v}" ${v==='normal'?'selected':''}>${l}</option>`).join('');
-  document.getElementById('ov-solicitacao').classList.add('on');
-}
-async function salvarSolicitacao(){
-  const assunto = document.getElementById('sol-assunto').value.trim();
-  if(!assunto){ toast('Informe o assunto.'); return; }
-  const descricao = document.getElementById('sol-descricao').value.trim();
-  const setorDestinoId = document.getElementById('sol-destino').value;
-  const payload = {
-    setor_origem_id: ME.setor_id||null,
-    setor_destino_id: setorDestinoId,
-    solicitante_id: ME.id, assunto, descricao,
-    prioridade: document.getElementById('sol-prioridade').value,
-    prazo_horas: parseFloat(document.getElementById('sol-prazo').value)||24
-  };
-  const { data, error } = await Q.from('solicitacoes').insert(payload).select().single();
-  if(error){ toast('Erro: '+error.message); return; }
-  registrarAuditoria('solicitacoes', data?.id, assunto, 'criar', null);
-  closeOV('ov-solicitacao'); renderDemandas(); toast('Solicitação enviada.');
-
-  // Também abre o ticket de verdade no DemandasGR (fire-and-forget — se falhar,
-  // a solicitação já existe normalmente dentro do Operacional mesmo assim).
-  try{
-    const setorDestinoNome = SETORES.find(s=>s.id===setorDestinoId)?.nome;
-    const setorOrigemNome = SETORES.find(s=>s.id===ME.setor_id)?.nome;
-    const resp = await fetch(CRM_URL+'/functions/v1/demandasgr-sync', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'create', setorDestinoNome, setorOrigemNome, assunto, desc:descricao, prioridade: payload.prioridade, solicitanteNome: ME.nome })
-    });
-    const json = await resp.json();
-    if(json.ok && json.firebase_ticket_id){
-      await Q.from('solicitacoes').update({firebase_ticket_id: json.firebase_ticket_id, sincronizado_em: new Date().toISOString()}).eq('id', data.id);
-      renderDemandas();
-    }
-  }catch(e){ console.warn('[salvarSolicitacao] falha ao criar ticket no DemandasGR:', e.message); }
 }
 
 /* ═══════════ RELATÓRIOS ═══════════ */
@@ -1935,8 +1814,8 @@ function closeOV(id){ document.getElementById(id).classList.remove('on'); }
 function pedirPermissaoNotificacao(){
   if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
 }
-function notificar(titulo, corpo){
-  if('Notification' in window && Notification.permission==='granted') new Notification(titulo,{body:corpo,icon:'icon.svg'});
+function notificar(titulo, corpo, opts){
+  if('Notification' in window && Notification.permission==='granted') new Notification(titulo,{body:corpo,icon:'icon.svg',...(opts||{})});
   else toast(titulo+' — '+corpo);
 }
 
