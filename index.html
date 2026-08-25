@@ -505,10 +505,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 <!-- ═══ MODAL: ITEM DA AGENDA DO DIA ═══ -->
 <div class="ov" id="ov-agenda">
   <div class="ov-box">
-    <div class="ov-head"><div class="ov-title">Planejar atividade de hoje</div><button class="icon-btn" onclick="closeOV('ov-agenda')">✕</button></div>
+    <div class="ov-head"><div class="ov-title">Planejar atividade</div><button class="icon-btn" onclick="closeOV('ov-agenda')">✕</button></div>
     <div class="ov-body">
       <input type="hidden" id="ag-id">
+      <div class="fld"><label>Quando</label>
+        <select id="ag-dia" style="width:100%"><option value="hoje">Hoje</option><option value="amanha">Amanhã</option></select>
+      </div>
       <div class="fld"><label>Horário previsto</label><input id="ag-horario" type="time"></div>
+      <div class="fld"><label>Atividade pré-definida (opcional)</label>
+        <select id="ag-atividade" style="width:100%" onchange="preencherTituloAgenda(this.value)"><option value="">— Digitar manualmente —</option></select>
+      </div>
       <div class="fld"><label>O que você planeja fazer</label><input id="ag-titulo" placeholder="Ex: Conciliação bancária"></div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-agenda')">Cancelar</button><button class="btn btn-primary" onclick="salvarAgendaItem()">Salvar</button></div>
@@ -1042,15 +1048,26 @@ async function renderAgendaDia(){
 }
 function abrirAgendaItem(){
   document.getElementById('ag-id').value=''; document.getElementById('ag-horario').value=''; document.getElementById('ag-titulo').value='';
+  document.getElementById('ag-dia').value='hoje';
+  // Mesma regra do Nova Atividade: colaborador só vê atividade pré-definida do próprio setor.
+  const atividadesVisiveis = isAdmin() ? ATIVIDADES : ATIVIDADES.filter(a=>a.setor_id===ME.setor_id);
+  document.getElementById('ag-atividade').innerHTML = '<option value="">— Digitar manualmente —</option>'+atividadesVisiveis.map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
   document.getElementById('ov-agenda').classList.add('on');
+}
+function preencherTituloAgenda(atividadeId){
+  if(!atividadeId) return;
+  const a = ATIVIDADES.find(x=>x.id===atividadeId);
+  if(a) document.getElementById('ag-titulo').value = a.nome;
 }
 async function salvarAgendaItem(){
   const titulo = document.getElementById('ag-titulo').value.trim();
   if(!titulo){ toast('Descreva o que você planeja fazer.'); return; }
   const horario_previsto = document.getElementById('ag-horario').value || null;
-  const { error } = await Q.from('agenda_dia').insert({usuario_id:ME.id, titulo, horario_previsto, data:new Date().toISOString().slice(0,10)});
+  const dia = document.getElementById('ag-dia').value;
+  const alvo = new Date(); if(dia==='amanha') alvo.setDate(alvo.getDate()+1);
+  const { error } = await Q.from('agenda_dia').insert({usuario_id:ME.id, titulo, horario_previsto, data:alvo.toISOString().slice(0,10)});
   if(error){ toast('Erro: '+error.message); return; }
-  closeOV('ov-agenda'); renderAgendaDia(); toast('Adicionado ao planejamento de hoje.');
+  closeOV('ov-agenda'); renderAgendaDia(); toast(dia==='amanha' ? 'Adicionado ao planejamento de amanhã.' : 'Adicionado ao planejamento de hoje.');
 }
 async function toggleConcluidoAgenda(id, atual){
   const { error } = await Q.from('agenda_dia').update({concluido:!atual}).eq('id',id);
