@@ -798,7 +798,12 @@ function tickTimer(){
 function renderTimerCard(){
   const slot = document.getElementById('timer-slot');
   const semCard = document.getElementById('sem-atividade-card');
-  if(!EXEC_ATUAL){ slot.innerHTML=''; semCard.classList.remove('hidden'); return; }
+  // BUGFIX (2026-08-25): #timer-slot vazio ainda contava como item do grid
+  // (grid-2 = auto-fit/minmax), sobrando uma coluna em branco do tamanho de
+  // um card inteiro à esquerda de "O que você vai fazer agora?" sempre que
+  // não havia execução em andamento — o usuário via isso como "sidebar sumindo".
+  if(!EXEC_ATUAL){ slot.innerHTML=''; slot.classList.add('hidden'); semCard.classList.remove('hidden'); return; }
+  slot.classList.remove('hidden');
   semCard.classList.add('hidden');
   const nome = EXEC_ATUAL.atividades?.nome || (EXEC_ATUAL.tipo==='extraordinario' ? 'Atividade extraordinária' : EXEC_ATUAL.tipo==='estrategico' ? 'Atividade estratégica' : 'Atividade');
   const padrao = EXEC_ATUAL.atividades?.tempo_padrao_min;
