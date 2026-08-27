@@ -54,7 +54,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 /* ===== LOGIN ===== */
 #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-box{width:100%;max-width:360px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:32px 28px}
-.login-logo{height:56px;width:auto;max-width:180px;margin:0 auto 14px;display:block;object-fit:contain}
+.login-logo{height:100px;width:auto;max-width:260px;margin:0 auto 14px;display:block;object-fit:contain}
 .login-title{text-align:center;font-size:18px;font-weight:700;margin-bottom:4px}
 .login-sub{text-align:center;font-size:12.5px;color:var(--muted);margin-bottom:22px}
 .fld{margin-bottom:14px}
@@ -229,7 +229,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <div class="page" id="page-equipe">
         <div class="card">
           <div class="card-title">Agora na empresa</div>
-          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Status</th><th>Tempo</th></tr></thead><tbody id="equipe-tbody"></tbody></table></div>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Status</th><th>Tempo</th><th>Planejado (hoje)</th></tr></thead><tbody id="equipe-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -543,6 +543,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   </div>
 </div>
 
+<!-- ═══ MODAL: DETALHES DO COLABORADOR (histórico + planejado) ═══ -->
+<div class="ov" id="ov-colab-detalhe">
+  <div class="ov-box" style="max-width:600px">
+    <div class="ov-head"><div class="ov-title" id="cd-titulo">Colaborador</div><button class="icon-btn" onclick="closeOV('ov-colab-detalhe')">✕</button></div>
+    <div class="ov-body">
+      <div class="card-title" style="margin-bottom:8px">Planejado (hoje em diante)</div>
+      <div class="tbl-wrap" style="margin-bottom:18px"><table class="tbl"><thead><tr><th>Dia</th><th>Horário</th><th>Planejado</th></tr></thead><tbody id="cd-planejado-tbody"></tbody></table></div>
+      <div class="card-title" style="margin-bottom:8px">Histórico (últimos 30 dias)</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Atividade</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody id="cd-historico-tbody"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -788,6 +801,11 @@ function tickTimer(){
   }
   el.textContent = fmtTempo(decorridoSeg);
 
+  if(EXEC_ATUAL.status==='pausado' && PAUSA_ATUAL){
+    const pausaEl = document.getElementById('pausa-relogio');
+    if(pausaEl) pausaEl.textContent = fmtTempo((Date.now() - new Date(PAUSA_ATUAL.inicio).getTime())/1000);
+  }
+
   const badge = document.getElementById('timer-desvio-badge');
   const padraoMin = EXEC_ATUAL.atividades?.tempo_padrao_min;
   if(padraoMin && EXEC_ATUAL.status==='em_andamento'){
@@ -850,6 +868,7 @@ function renderTimerCard(){
     <div class="nome">${nome}</div>
     <div class="relogio" id="timer-relogio">00:00:00</div>
     <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}${sla?(' · Prazo: '+sla+'h'):''}</div>
+    ${EXEC_ATUAL.status==='pausado' ? `<div class="meta" style="margin-top:8px">Pausado há (${(PAUSA_ATUAL&&PAUSA_ATUAL.motivo)||'—'})</div><div class="relogio" id="pausa-relogio" style="color:var(--gold);font-size:22px">00:00:00</div>` : ''}
     <div id="timer-desvio-badge"></div>
     <div id="timer-prazo-badge"></div>
     <div class="actions">
@@ -1209,6 +1228,14 @@ async function renderEquipe(){
   const execPorUsuario = {}; (execs||[]).forEach(e=>execPorUsuario[e.usuario_id]=e);
   const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
 
+  // Planejamento do dia de cada um (o que falta fazer), pra quem tá vendo a
+  // equipe conseguir cruzar "o que essa pessoa tinha planejado" com o que ela
+  // de fato tá executando agora.
+  const hojeEquipe = new Date().toISOString().slice(0,10);
+  const { data: agendasEquipe } = ids.length ? await Q.from('agenda_dia').select('usuario_id,titulo,horario_previsto').in('usuario_id',ids).eq('data',hojeEquipe).eq('concluido',false).order('horario_previsto',{ascending:true}) : {data:[]};
+  const planejadoPorUsuario = {};
+  (agendasEquipe||[]).forEach(a=>{ (planejadoPorUsuario[a.usuario_id]=planejadoPorUsuario[a.usuario_id]||[]).push(a); });
+
   // Detector de ociosidade: pra quem está "Livre", olha quando terminou a última
   // atividade concluída nas últimas 24h — sem cobrar, só informar.
   const inicio24h = new Date(Date.now()-24*3600*1000).toISOString();
@@ -1229,8 +1256,40 @@ async function renderEquipe(){
       const segOcioso = (Date.now()-new Date(ultimoFimPorUsuario[u.id]).getTime())/1000;
       if(segOcioso >= 45*60) status += ` <span class="pill pill-red" style="margin-left:4px">sem atividade há ${fmtTempo(segOcioso).slice(0,5)}h</span>`;
     }
-    return `<tr><td>${u.nome}</td><td>${setorNome[u.setor_id]||'—'}</td><td>${nomeAtiv}</td><td>${status}</td><td>${tempo}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Ninguém na sua equipe ainda.</td></tr>';
+    const planejados = planejadoPorUsuario[u.id]||[];
+    const planejado = planejados.length
+      ? planejados.map(a=>(a.horario_previsto?a.horario_previsto.slice(0,5)+' ':'')+a.titulo).join('<br>')
+      : '<span style="color:var(--muted)">Nada planejado</span>';
+    return `<tr><td><button class="btn btn-muted" style="padding:4px 8px;font-size:12.5px" onclick="abrirDetalhesColab('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">${u.nome}</button></td><td>${setorNome[u.setor_id]||'—'}</td><td>${nomeAtiv}</td><td>${status}</td><td>${tempo}</td><td style="font-size:12.5px">${planejado}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Ninguém na sua equipe ainda.</td></tr>';
+}
+
+/* ═══════════ DETALHES DO COLABORADOR (histórico + planejado, por pessoa) ═══════════
+   Aberto a partir do nome na tabela "Agora na empresa" — mesma visibilidade
+   de quem já enxerga a página Equipe (supervisor+/admin), só que agora dá
+   pra abrir o histórico completo e o planejamento (hoje + futuro) de UMA
+   pessoa específica, não só o instantâneo ao vivo. */
+async function abrirDetalhesColab(usuarioId, nome){
+  document.getElementById('cd-titulo').textContent = nome;
+  document.getElementById('ov-colab-detalhe').classList.add('on');
+  document.getElementById('cd-planejado-tbody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted)">Carregando…</td></tr>';
+  document.getElementById('cd-historico-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Carregando…</td></tr>';
+
+  const hojeStr = new Date().toISOString().slice(0,10);
+  const { data: planejado } = await Q.from('agenda_dia').select('*').eq('usuario_id',usuarioId).gte('data',hojeStr).order('data',{ascending:true}).order('horario_previsto',{ascending:true});
+  document.getElementById('cd-planejado-tbody').innerHTML = (planejado||[]).map(a=>{
+    const dia = a.data===hojeStr ? 'Hoje' : new Date(a.data+'T00:00:00').toLocaleDateString('pt-BR');
+    return `<tr><td>${dia}</td><td>${a.horario_previsto?a.horario_previsto.slice(0,5):'—'}</td><td style="${a.concluido?'text-decoration:line-through;color:var(--muted)':''}">${a.titulo}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">Nada planejado.</td></tr>';
+
+  const inicio30 = new Date(); inicio30.setDate(inicio30.getDate()-30);
+  const { data: execs } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',usuarioId).gte('criado_em',inicio30.toISOString()).order('criado_em',{ascending:false}).limit(30);
+  document.getElementById('cd-historico-tbody').innerHTML = (execs||[]).map(e=>{
+    const nomeAtiv = e.atividades?.nome || (e.tipo==='extraordinario'?'Extraordinária':e.tipo==='estrategico'?'Estratégica':'Atividade');
+    const tempo = e.fim ? fmtTempo((new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)) : '—';
+    const status = e.status==='concluido'?'<span class="pill pill-green">Concluída</span>':e.status==='pausado'?'<span class="pill pill-gold">Pausada</span>':e.status==='aguardando_validacao'?'<span class="pill pill-gold">Aguardando validação</span>':e.status==='devolvida'?'<span class="pill pill-red">Devolvida</span>':'<span class="pill pill-blue">Em andamento</span>';
+    return `<tr><td>${new Date(e.criado_em).toLocaleDateString('pt-BR')}</td><td>${nomeAtiv}</td><td>${tempo}</td><td>${status}</td><td><button class="btn btn-muted" style="padding:4px 8px;font-size:11.5px" onclick="abrirLinhaDoTempo('${e.id}')">Linha do tempo</button></td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Sem histórico.</td></tr>';
 }
 
 /* ═══════════ APROVAÇÕES ═══════════ */
