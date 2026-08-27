@@ -469,6 +469,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <select id="us-origem" style="width:100%"><option value="crm">CRM</option><option value="portal">Portal</option><option value="novo">Criar novo login (CRM)</option></select>
       </div>
       <div class="fld hidden" id="us-senha-wrap"><label>Senha temporária (login novo)</label><input id="us-senha" type="text" placeholder="deixe em branco para gerar"></div>
+      <div class="fld" id="us-senha-local-wrap">
+        <label>Senha própria do Operacional (opcional)</label>
+        <input id="us-senha-local" type="text" placeholder="Deixe em branco para não mexer">
+        <p style="margin-top:4px;font-size:11.5px;color:var(--muted)">Preencher aqui faz essa pessoa passar a entrar com e-mail/senha SÓ deste app, sem depender do login do CRM/Portal — útil se o e-mail dela colidir com outra conta. Uma vez definida, essa senha vale a partir do próximo login.</p>
+      </div>
       <div class="fld"><label>Custo por hora (R$, opcional — só admin vê)</label><input id="us-custo-hora" type="number" step="0.01" placeholder="Ex: 37.50"></div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-usuario')">Cancelar</button><button class="btn btn-primary" onclick="salvarUsuario()">Salvar</button></div>
@@ -644,18 +649,54 @@ async function fazerLogin(){
   if(!email || !senha){ errEl.textContent = 'Preencha e-mail e senha.'; return; }
   document.getElementById('lg-btn').textContent = 'Entrando...';
 
+  // Login PRÓPRIO do Operacional (independente do Auth do CRM/Portal), opt-in
+  // por pessoa (produtividade.login_local) — pedido do usuário pra poder
+  // trocar e-mail/senha sem esbarrar na restrição de e-mail único do Auth
+  // compartilhado. Se a conta ainda não foi migrada (NAO_MIGRADO), cai pro
+  // fluxo antigo normalmente — ninguém mais é afetado por essa mudança.
+  const { data: rowLocal, error: errLocal } = await Q.rpc('login_local_autenticar', {p_email:email, p_senha:senha});
+  if(!errLocal){
+    AUTH_SOURCE = 'local';
+    return depoisDoLoginLocal(Array.isArray(rowLocal)?rowLocal[0]:rowLocal);
+  }
+  if(errLocal.message !== 'NAO_MIGRADO'){
+    document.getElementById('lg-btn').textContent = 'Entrar';
+    errEl.textContent = errLocal.message || 'E-mail ou senha inválidos.';
+    return;
+  }
+
   let ok = await sbCrm.auth.signInWithPassword({email,password:senha});
-  if(!ok.error){ AUTH_SOURCE = 'crm'; return depoisDoLogin(email); }
+  if(!ok.error){ AUTH_SOURCE = 'crm'; return depoisDoLogin(email, ok.data.user.id); }
 
   let ok2 = await sbPortal.auth.signInWithPassword({email,password:senha});
-  if(!ok2.error){ AUTH_SOURCE = 'portal'; return depoisDoLogin(email); }
+  if(!ok2.error){ AUTH_SOURCE = 'portal'; return depoisDoLogin(email, ok2.data.user.id); }
 
   document.getElementById('lg-btn').textContent = 'Entrar';
   errEl.textContent = 'E-mail ou senha inválidos.';
 }
 
-async function depoisDoLogin(email){
-  const { data, error } = await Q.from('usuarios').select('*').ilike('email', email).maybeSingle();
+async function depoisDoLoginLocal(row){
+  const { data } = await Q.from('usuarios').select('*').eq('id', row.id).maybeSingle();
+  if(!data || !data.ativo){
+    document.getElementById('login-error').textContent = 'Você não tem acesso a este app. Fale com o administrador.';
+    document.getElementById('lg-btn').textContent = 'Entrar';
+    return;
+  }
+  ME = data;
+  localStorage.setItem('op_auth_source', 'local');
+  localStorage.setItem('op_local_usuario_id', ME.id);
+  await iniciarApp();
+}
+
+// BUGFIX (2026-08-27): antes buscava o perfil por e-mail (ilike('email',email))
+// — funcionava só enquanto produtividade.usuarios.email ficasse IDENTICO ao
+// e-mail real de login. Editar o e-mail em Administração > Usuários (mesmo já
+// corrigido pra sincronizar o Auth) ou qualquer drift entre os dois quebrava o
+// login de quem tinha acabado de logar corretamente (achado no caso do
+// Deivid). Agora busca pelo vinculo estavel auth_user_id, que e o que o login
+// de verdade usa — nao depende do texto do e-mail bater.
+async function depoisDoLogin(email, authUserId){
+  const { data, error } = await Q.from('usuarios').select('*').eq('auth_user_id', authUserId).maybeSingle();
   if(error || !data || !data.ativo){
     document.getElementById('login-error').textContent = 'Você não tem acesso a este app. Fale com o administrador.';
     document.getElementById('lg-btn').textContent = 'Entrar';
@@ -670,11 +711,21 @@ async function depoisDoLogin(email){
 async function tentarSessaoSalva(){
   const src = localStorage.getItem('op_auth_source');
   if(!src) return false;
+  if(src==='local'){
+    const usuarioId = localStorage.getItem('op_local_usuario_id');
+    if(!usuarioId) return false;
+    AUTH_SOURCE = 'local';
+    const { data } = await Q.from('usuarios').select('*').eq('id', usuarioId).maybeSingle();
+    if(!data || !data.ativo) return false;
+    ME = data;
+    await iniciarApp();
+    return true;
+  }
   const cli = src==='crm' ? sbCrm : sbPortal;
   const { data:{ session } } = await cli.auth.getSession();
   if(!session) return false;
   AUTH_SOURCE = src;
-  const { data } = await Q.from('usuarios').select('*').ilike('email', session.user.email).maybeSingle();
+  const { data } = await Q.from('usuarios').select('*').eq('auth_user_id', session.user.id).maybeSingle();
   if(!data || !data.ativo) return false;
   ME = data;
   await iniciarApp();
@@ -684,6 +735,7 @@ async function tentarSessaoSalva(){
 async function sair(){
   await sbCrm.auth.signOut(); await sbPortal.auth.signOut();
   localStorage.removeItem('op_auth_source');
+  localStorage.removeItem('op_local_usuario_id');
   location.reload();
 }
 
@@ -1826,6 +1878,8 @@ function abrirModalUsuario(id){
   document.getElementById('us-cargo').value = u?.cargo||'colaborador';
   document.getElementById('us-setor').innerHTML = '<option value="">—</option>'+SETORES.map(s=>`<option value="${s.id}" ${u?.setor_id===s.id?'selected':''}>${s.nome}</option>`).join('');
   document.getElementById('us-custo-hora').value = u?.custo_hora ?? '';
+  document.getElementById('us-senha-local').value = '';
+  document.getElementById('us-senha-local-wrap').classList.toggle('hidden', !u);
   const origemWrap = document.getElementById('us-origem').closest('.fld');
   if(u){
     // Editando alguém que já existe: origem/senha de login não fazem sentido aqui.
@@ -1846,7 +1900,9 @@ async function salvarUsuario(){
   const cargo = document.getElementById('us-cargo').value;
   const setor_id = document.getElementById('us-setor').value || null;
   const custo_hora = parseFloat(document.getElementById('us-custo-hora').value)||null;
+  const senhaLocal = document.getElementById('us-senha-local')?.value.trim() || '';
   if(!nome || !email){ toast('Preencha nome e e-mail.'); return; }
+  if(senhaLocal && senhaLocal.length<6){ toast('Senha própria: mínimo de 6 caracteres.'); return; }
 
   if(id){
     // BUGFIX (2026-08-27): antes, trocar o e-mail aqui só atualizava essa cópia
@@ -1859,6 +1915,18 @@ async function salvarUsuario(){
     const { error } = await Q.from('usuarios').update({nome, email, cargo, setor_id, custo_hora}).eq('id',id);
     if(error){ toast('Erro: '+error.message); return; }
     registrarAuditoria('usuarios', id, nome, 'editar', null);
+    if(senhaLocal){
+      const { error: errLocal } = await Q.rpc('definir_senha_local', { p_caller_id: ME.id, p_alvo_id: id, p_senha: senhaLocal });
+      if(errLocal){
+        toast('Cadastro salvo, mas a senha própria NÃO foi definida: '+errLocal.message, 'err');
+        closeOV('ov-usuario'); renderAdmUsuarios();
+        return;
+      }
+      registrarAuditoria('usuarios', id, nome, 'definir_senha_local', null);
+      closeOV('ov-usuario'); renderAdmUsuarios();
+      toast('Usuário atualizado. A partir de agora, entra com e-mail/senha só deste app.');
+      return;
+    }
     if(antes?.auth_user_id && antes.email !== email){
       const url = (antes.auth_source==='portal' ? PORTAL_URL : CRM_URL)+'/functions/v1/operacional-reset-senha';
       try{
