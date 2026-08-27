@@ -822,11 +822,22 @@ function toast(msg){
   setTimeout(()=>t.classList.remove('on'), 2600);
 }
 
-/* ═══════════ EXECUÇÃO ATUAL / TIMER ═══════════ */
+/* ═══════════ EXECUÇÃO ATUAL / TIMER ═══════════
+   Pode existir mais de uma execução em_andamento pro mesmo usuário — desde
+   2026-08-27, um chamado do Demandas movido pra "em andamento" enquanto a
+   pessoa já está ocupada entra numa fila (não pausa nem substitui o que ela
+   já estava fazendo). A "atual" é sempre a mais ANTIGA ainda em andamento —
+   assim a atividade que já estava rodando nunca é interrompida, e a(s)
+   próxima(s) da fila só viram a principal quando essa for finalizada. */
 async function carregarExecucaoAtual(){
   const { data } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)')
-    .eq('usuario_id', ME.id).in('status',['em_andamento','pausado','devolvida']).order('inicio',{ascending:false}).limit(1).maybeSingle();
-  EXEC_ATUAL = data || null;
+    .eq('usuario_id', ME.id).in('status',['em_andamento','pausado','devolvida']);
+  // Ordena no cliente por fila_prioridade_em (se definida, via "Passar à
+  // frente") ou por inicio — não dá pra fazer isso num .order() do PostgREST
+  // direto porque é um COALESCE entre duas colunas, não uma coluna só.
+  const candidatos = (data||[]).slice().sort((a,b)=>
+    new Date(a.fila_prioridade_em||a.inicio) - new Date(b.fila_prioridade_em||b.inicio));
+  EXEC_ATUAL = candidatos[0] || null;
   if(EXEC_ATUAL && EXEC_ATUAL.status==='pausado'){
     const { data:p } = await Q.from('pausas').select('*').eq('execucao_id',EXEC_ATUAL.id).is('fim',null).maybeSingle();
     PAUSA_ATUAL = p || null;
@@ -903,7 +914,7 @@ function renderTimerCard(){
   if(!EXEC_ATUAL){ slot.innerHTML=''; slot.classList.add('hidden'); semCard.classList.remove('hidden'); return; }
   slot.classList.remove('hidden');
   semCard.classList.add('hidden');
-  const nome = EXEC_ATUAL.atividades?.nome || (EXEC_ATUAL.tipo==='extraordinario' ? 'Atividade extraordinária' : EXEC_ATUAL.tipo==='estrategico' ? 'Atividade estratégica' : 'Atividade');
+  const nome = EXEC_ATUAL.atividades?.nome || (EXEC_ATUAL.tipo==='extraordinario' ? (EXEC_ATUAL.extra_o_que ? 'Chamado: '+EXEC_ATUAL.extra_o_que : 'Atividade extraordinária') : EXEC_ATUAL.tipo==='estrategico' ? 'Atividade estratégica' : 'Atividade');
   const padrao = EXEC_ATUAL.atividades?.tempo_padrao_min;
   const sla = EXEC_ATUAL.atividades?.sla_horas;
 
@@ -1100,8 +1111,13 @@ async function confirmarFinalizar(){
   if(EXEC_ATUAL.solicitacao_id){
     await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:patch.observacao||'Concluída via atividade'}).eq('id',EXEC_ATUAL.solicitacao_id);
   }
-  EXEC_ATUAL = null; PAUSA_ATUAL = null;
-  closeOV('ov-finalizar'); renderTimerCard(); renderHoje();
+  // Busca de novo (em vez de só zerar) pra pegar automaticamente a próxima
+  // atividade da fila, se houver uma (chamado do Demandas que chegou
+  // enquanto esta estava rodando) — sem isso, a próxima só apareceria
+  // depois de recarregar a página.
+  closeOV('ov-finalizar');
+  await carregarExecucaoAtual();
+  renderHoje();
   toast('Atividade finalizada!');
 }
 
@@ -1122,7 +1138,7 @@ async function renderHoje(){
   document.getElementById('hoje-tbody').innerHTML = lista.map(e=>{
     const nome = e.atividades?.nome || (e.tipo==='extraordinario'?('Extraordinária: '+(e.extra_o_que||'').slice(0,40)):e.tipo==='estrategico'?('Estratégica: '+(e.extra_o_que||'').slice(0,40)):'Atividade');
     const tempo = e.fim ? fmtTempo((new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)) : '—';
-    let statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : e.status==='aguardando_validacao' ? '<span class="pill pill-gold">Aguardando validação</span>' : e.status==='devolvida' ? '<span class="pill pill-red">Devolvida</span>' : '<span class="pill pill-blue">Em andamento</span>';
+    let statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : e.status==='aguardando_validacao' ? '<span class="pill pill-gold">Aguardando validação</span>' : e.status==='devolvida' ? '<span class="pill pill-red">Devolvida</span>' : e.status==='em_andamento' && e.id!==EXEC_ATUAL?.id ? '<span class="pill pill-muted">Na fila</span>' : '<span class="pill pill-blue">Em andamento</span>';
     if(e.status==='pausado' && pausaAbertaPorExec[e.id]){
       const p = pausaAbertaPorExec[e.id];
       statusPill += `<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.motivo}${p.observacao?' — '+p.observacao:''}</div>`;
@@ -1136,7 +1152,7 @@ async function deleteExecucao(id){
   const { error } = await Q.from('execucoes').delete().eq('id',id);
   if(error){ toast(mensagemErroExclusao(error)); return; }
   registrarAuditoria('execucoes', id, exec?.atividades?.nome||null, 'apagar', null);
-  if(EXEC_ATUAL?.id===id){ EXEC_ATUAL=null; PAUSA_ATUAL=null; renderTimerCard(); }
+  if(EXEC_ATUAL?.id===id) await carregarExecucaoAtual();
   renderHoje();
   toast('Atividade apagada.');
 }
@@ -1160,38 +1176,55 @@ async function carregarSolicitacoesVisiveis(){
 async function assumirSolicitacao(id){
   const { error } = await Q.from('solicitacoes').update({responsavel_id:ME.id, status:'em_andamento', iniciado_em:new Date().toISOString()}).eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
-  // Mesma regra do Demandas: só vira timer ativo na hora se a pessoa estiver
-  // livre — não força, pra não atropelar uma atividade já em andamento.
-  if(!EXEC_ATUAL){
-    const { data: jaExiste } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').eq('solicitacao_id',id).maybeSingle();
-    if(jaExiste){
-      EXEC_ATUAL = jaExiste; PAUSA_ATUAL = null; renderTimerCard();
-    } else {
-      const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
-      const { data: novaExec, error: execErr } = await Q.from('execucoes').insert({
-        usuario_id: ME.id, tipo:'extraordinario', solicitacao_id: id,
-        extra_o_que: s.assunto, extra_por_que: 'Chamado recebido pelo Demandas',
-        extra_quem_solicitou: s.solicitante_nome_externo||'—',
-        extra_setor_origem: s.origem?.nome||'—'
-      }).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
-      if(!execErr){ EXEC_ATUAL = novaExec; PAUSA_ATUAL = null; renderTimerCard(); }
-    }
-    toast('Chamado assumido — timer iniciado!');
-  } else {
-    toast('Chamado assumido — finalize sua atividade atual pra iniciar o timer dele.');
+  // Sempre cria a execução — se já tiver algo em andamento, esta entra na
+  // fila (não pausa nem substitui nada; carregarExecucaoAtual() sempre pega
+  // a mais antiga ainda em andamento como a "atual" da tela de Início).
+  const { data: jaExiste } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').eq('solicitacao_id',id).maybeSingle();
+  if(!jaExiste){
+    const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
+    await Q.from('execucoes').insert({
+      usuario_id: ME.id, tipo:'extraordinario', solicitacao_id: id,
+      extra_o_que: s.assunto, extra_por_que: 'Chamado recebido pelo Demandas',
+      extra_quem_solicitou: s.solicitante_nome_externo||'—',
+      extra_setor_origem: s.origem?.nome||'—'
+    });
   }
+  await carregarExecucaoAtual();
+  toast(EXEC_ATUAL?.solicitacao_id===id ? 'Chamado assumido — timer iniciado!' : 'Chamado assumido — entrou na fila (você já tem uma atividade em andamento).');
   renderAgendaDia();
 }
-function renderLinhaSolicitacao(s){
+function renderLinhaSolicitacao(s, exec){
   const horaAbertura = new Date(s.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const assumida = s.responsavel_id===ME.id;
+  const naFila = assumida && exec && exec.status==='em_andamento' && exec.id!==EXEC_ATUAL?.id;
   const link = DEMANDAS_URL+'?ticket='+s.id;
+  let acaoCel;
+  if(assumida && exec?.status==='pausado'){
+    acaoCel = '<span class="pill pill-gold">Pausada</span>';
+  } else if(naFila){
+    acaoCel = `<span class="pill pill-muted">Aguardando fila</span> <button class="btn btn-muted" style="padding:4px 8px;font-size:11.5px" onclick="passarNaFila('${exec.id}')">Passar à frente</button>`;
+  } else if(assumida){
+    acaoCel = '<span class="pill pill-blue">Você assumiu</span>';
+  } else {
+    acaoCel = `<button class="btn btn-muted" style="padding:6px 10px" onclick="assumirSolicitacao('${s.id}')">Assumir</button>`;
+  }
   return `<tr>
     <td>${horaAbertura}</td>
     <td>🎫 <b>${numFmtSolicitacao(s.numero)}</b> — ${s.assunto} <span style="color:var(--muted);font-size:11px">(${s.destino?.nome||'—'})</span></td>
-    <td>${assumida?'<span class="pill pill-blue">Você assumiu</span>':`<button class="btn btn-muted" style="padding:6px 10px" onclick="assumirSolicitacao('${s.id}')">Assumir</button>`}</td>
+    <td>${acaoCel}</td>
     <td><a href="${link}" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">Abrir ↗</a></td>
   </tr>`;
+}
+async function passarNaFila(execId){
+  if(!EXEC_ATUAL){ toast('Você não tem atividade em andamento agora.'); return; }
+  if(execId===EXEC_ATUAL.id) return;
+  const ordemAtual = new Date(EXEC_ATUAL.fila_prioridade_em||EXEC_ATUAL.inicio);
+  const novaOrdem = new Date(ordemAtual.getTime()-1000).toISOString();
+  const { error } = await Q.from('execucoes').update({fila_prioridade_em:novaOrdem}).eq('id',execId);
+  if(error){ toast('Erro: '+error.message); return; }
+  await carregarExecucaoAtual();
+  renderAgendaDia();
+  toast('Chamado passou à frente — agora é sua atividade principal.');
 }
 async function renderAgendaDia(){
   const hoje = new Date().toISOString().slice(0,10);
@@ -1199,7 +1232,15 @@ async function renderAgendaDia(){
   const lista = data||[];
   AGENDA_HOJE = lista;
   const solicitacoes = await carregarSolicitacoesVisiveis();
-  const linhasSolicitacoes = solicitacoes.map(renderLinhaSolicitacao).join('');
+  // Pra distinguir "já assumido e rodando" de "assumido mas na fila" (chamado
+  // extra que chegou enquanto eu já tava com outra coisa em andamento).
+  const minhasIds = solicitacoes.filter(s=>s.responsavel_id===ME.id).map(s=>s.id);
+  const execPorSolicitacao = {};
+  if(minhasIds.length){
+    const { data: execs } = await Q.from('execucoes').select('id,solicitacao_id,status').in('solicitacao_id',minhasIds);
+    (execs||[]).forEach(e=>{ execPorSolicitacao[e.solicitacao_id]=e; });
+  }
+  const linhasSolicitacoes = solicitacoes.map(s=>renderLinhaSolicitacao(s,execPorSolicitacao[s.id])).join('');
   const linhasPessoais = lista.map(a=>`<tr>
     <td>${a.horario_previsto?a.horario_previsto.slice(0,5):'—'}</td>
     <td style="${a.concluido?'text-decoration:line-through;color:var(--muted)':''}">${a.titulo}</td>
@@ -1296,8 +1337,10 @@ async function renderEquipe(){
   if(isSupervisor() && ME.setor_id) usuariosQ = usuariosQ.eq('setor_id', ME.setor_id);
   const { data: usuarios } = await usuariosQ;
   const ids = (usuarios||[]).map(u=>u.id);
-  const { data: execs } = ids.length ? await Q.from('execucoes').select('*, atividades(nome)').in('usuario_id',ids).in('status',['em_andamento','pausado']) : {data:[]};
-  const execPorUsuario = {}; (execs||[]).forEach(e=>execPorUsuario[e.usuario_id]=e);
+  const { data: execs } = ids.length ? await Q.from('execucoes').select('*, atividades(nome)').in('usuario_id',ids).in('status',['em_andamento','pausado']).order('inicio',{ascending:true}) : {data:[]};
+  // Se alguém tiver mais de uma (fila de chamados), fica a mais antiga —
+  // mesma atividade que aparece como "atual" pra essa pessoa no Início dela.
+  const execPorUsuario = {}; (execs||[]).forEach(e=>{ if(!execPorUsuario[e.usuario_id]) execPorUsuario[e.usuario_id]=e; });
   const setorNome = {}; SETORES.forEach(s=>setorNome[s.id]=s.nome);
 
   // Planejamento do dia de cada um (o que falta fazer), pra quem tá vendo a
@@ -1327,7 +1370,7 @@ async function renderEquipe(){
 
   document.getElementById('equipe-tbody').innerHTML = (usuarios||[]).map(u=>{
     const e = execPorUsuario[u.id];
-    const nomeAtiv = e ? (e.atividades?.nome || (e.tipo==='extraordinario'?'Extraordinária':'Atividade')) : '—';
+    const nomeAtiv = e ? (e.atividades?.nome || (e.tipo==='extraordinario'?(e.extra_o_que||'Extraordinária'):'Atividade')) : '—';
     let status = e ? (e.status==='pausado'?'<span class="pill pill-gold">Pausado</span>':'<span class="pill pill-blue">Em andamento</span>') : '<span class="pill pill-muted">Livre</span>';
     let tempo = '—';
     if(e){ const seg=(Date.now()-new Date(e.inicio).getTime())/1000-(e.tempo_pausado_seg||0); tempo = fmtTempo(seg); }
@@ -1374,7 +1417,7 @@ async function abrirDetalhesColab(usuarioId, nome){
   const inicio30 = new Date(); inicio30.setDate(inicio30.getDate()-30);
   const { data: execs } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',usuarioId).gte('criado_em',inicio30.toISOString()).order('criado_em',{ascending:false}).limit(30);
   document.getElementById('cd-historico-tbody').innerHTML = (execs||[]).map(e=>{
-    const nomeAtiv = e.atividades?.nome || (e.tipo==='extraordinario'?'Extraordinária':e.tipo==='estrategico'?'Estratégica':'Atividade');
+    const nomeAtiv = e.atividades?.nome || (e.tipo==='extraordinario'?(e.extra_o_que||'Extraordinária'):e.tipo==='estrategico'?'Estratégica':'Atividade');
     const tempo = e.fim ? fmtTempo((new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)) : '—';
     const status = e.status==='concluido'?'<span class="pill pill-green">Concluída</span>':e.status==='pausado'?'<span class="pill pill-gold">Pausada</span>':e.status==='aguardando_validacao'?'<span class="pill pill-gold">Aguardando validação</span>':e.status==='devolvida'?'<span class="pill pill-red">Devolvida</span>':'<span class="pill pill-blue">Em andamento</span>';
     return `<tr><td>${new Date(e.criado_em).toLocaleDateString('pt-BR')}</td><td>${nomeAtiv}</td><td>${tempo}</td><td>${status}</td><td><button class="btn btn-muted" style="padding:4px 8px;font-size:11.5px" onclick="abrirLinhaDoTempo('${e.id}')">Linha do tempo</button></td></tr>`;
