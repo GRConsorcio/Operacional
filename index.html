@@ -404,6 +404,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <label>De qual setor você está aguardando / quem interrompeu?</label>
         <select id="pausa-setor-relacionado" style="width:100%"><option value="">—</option></select>
       </div>
+      <div class="fld">
+        <label>Observação (opcional)</label>
+        <textarea id="pausa-observacao" rows="2" style="width:100%;resize:vertical" placeholder="Algum detalhe a mais sobre essa pausa?"></textarea>
+      </div>
     </div>
     <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-pausa')">Cancelar</button><button class="btn btn-primary" onclick="confirmarPausa()">Pausar</button></div>
   </div>
@@ -868,7 +872,7 @@ function renderTimerCard(){
     <div class="nome">${nome}</div>
     <div class="relogio" id="timer-relogio">00:00:00</div>
     <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}${sla?(' · Prazo: '+sla+'h'):''}</div>
-    ${EXEC_ATUAL.status==='pausado' ? `<div class="meta" style="margin-top:8px">Pausado há (${(PAUSA_ATUAL&&PAUSA_ATUAL.motivo)||'—'})</div><div class="relogio" id="pausa-relogio" style="color:var(--gold);font-size:22px">00:00:00</div>` : ''}
+    ${EXEC_ATUAL.status==='pausado' ? `<div class="meta" style="margin-top:8px">Pausado há (${(PAUSA_ATUAL&&PAUSA_ATUAL.motivo)||'—'})${(PAUSA_ATUAL&&PAUSA_ATUAL.observacao)?' — '+PAUSA_ATUAL.observacao:''}</div><div class="relogio" id="pausa-relogio" style="color:var(--gold);font-size:22px">00:00:00</div>` : ''}
     <div id="timer-desvio-badge"></div>
     <div id="timer-prazo-badge"></div>
     <div class="actions">
@@ -957,6 +961,7 @@ const MOTIVOS_COM_SETOR = ['Aguardando aprovação','Aguardando documento','Aten
 function abrirPausa(){
   document.getElementById('pausa-motivo').value='Almoço';
   document.getElementById('pausa-setor-relacionado').value='';
+  document.getElementById('pausa-observacao').value='';
   atualizarSetorRelacionadoVisibilidade();
   document.getElementById('ov-pausa').classList.add('on');
 }
@@ -967,11 +972,12 @@ function atualizarSetorRelacionadoVisibilidade(){
 async function confirmarPausa(){
   const motivo = document.getElementById('pausa-motivo').value;
   const setor_relacionado_id = document.getElementById('pausa-setor-relacionado').value || null;
-  const { data:pausa, error } = await Q.from('pausas').insert({execucao_id:EXEC_ATUAL.id, motivo, setor_relacionado_id}).select().single();
+  const observacao = document.getElementById('pausa-observacao').value.trim() || null;
+  const { data:pausa, error } = await Q.from('pausas').insert({execucao_id:EXEC_ATUAL.id, motivo, setor_relacionado_id, observacao}).select().single();
   if(error){ toast('Erro: '+error.message); return; }
   await Q.from('execucoes').update({status:'pausado'}).eq('id',EXEC_ATUAL.id);
   EXEC_ATUAL.status='pausado'; PAUSA_ATUAL = pausa;
-  closeOV('ov-pausa'); renderTimerCard();
+  closeOV('ov-pausa'); renderTimerCard(); renderHoje();
 }
 async function retomar(){
   const segundosPausa = Math.round((Date.now() - new Date(PAUSA_ATUAL.inicio).getTime())/1000);
@@ -979,7 +985,7 @@ async function retomar(){
   const novoPausado = (EXEC_ATUAL.tempo_pausado_seg||0) + segundosPausa;
   await Q.from('execucoes').update({status:'em_andamento', tempo_pausado_seg:novoPausado}).eq('id',EXEC_ATUAL.id);
   EXEC_ATUAL.status='em_andamento'; EXEC_ATUAL.tempo_pausado_seg = novoPausado; PAUSA_ATUAL = null;
-  renderTimerCard();
+  renderTimerCard(); renderHoje();
 }
 
 /* ═══════════ FINALIZAR ═══════════ */
@@ -1051,10 +1057,23 @@ async function renderHoje(){
   renderAgendaDia();
   const inicioHoje = new Date(); inicioHoje.setHours(0,0,0,0);
   const { data } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',ME.id).gte('criado_em', inicioHoje.toISOString()).order('criado_em',{ascending:false});
-  document.getElementById('hoje-tbody').innerHTML = (data||[]).map(e=>{
+  const lista = data||[];
+  // Motivo (e observação) da pausa em aberto de cada execução pausada, pra
+  // mostrar o "porquê" direto na lista de hoje, sem precisar abrir nada.
+  const idsPausados = lista.filter(e=>e.status==='pausado').map(e=>e.id);
+  const pausaAbertaPorExec = {};
+  if(idsPausados.length){
+    const { data: pausasAbertas } = await Q.from('pausas').select('execucao_id,motivo,observacao').in('execucao_id',idsPausados).is('fim',null);
+    (pausasAbertas||[]).forEach(p=>{ pausaAbertaPorExec[p.execucao_id]=p; });
+  }
+  document.getElementById('hoje-tbody').innerHTML = lista.map(e=>{
     const nome = e.atividades?.nome || (e.tipo==='extraordinario'?('Extraordinária: '+(e.extra_o_que||'').slice(0,40)):e.tipo==='estrategico'?('Estratégica: '+(e.extra_o_que||'').slice(0,40)):'Atividade');
     const tempo = e.fim ? fmtTempo((new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)) : '—';
-    const statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : e.status==='aguardando_validacao' ? '<span class="pill pill-gold">Aguardando validação</span>' : e.status==='devolvida' ? '<span class="pill pill-red">Devolvida</span>' : '<span class="pill pill-blue">Em andamento</span>';
+    let statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : e.status==='aguardando_validacao' ? '<span class="pill pill-gold">Aguardando validação</span>' : e.status==='devolvida' ? '<span class="pill pill-red">Devolvida</span>' : '<span class="pill pill-blue">Em andamento</span>';
+    if(e.status==='pausado' && pausaAbertaPorExec[e.id]){
+      const p = pausaAbertaPorExec[e.id];
+      statusPill += `<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.motivo}${p.observacao?' — '+p.observacao:''}</div>`;
+    }
     return `<tr><td>${nome}</td><td>${e.tipo}</td><td>${tempo}</td><td>${statusPill}</td><td><button class="btn btn-muted" style="padding:4px 8px" onclick="deleteExecucao('${e.id}')">✕</button></td></tr>`;
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Nenhuma atividade hoje.</td></tr>';
 }
@@ -1426,7 +1445,7 @@ async function abrirLinhaDoTempo(execucaoId){
   eventos.push({t:e.criado_em, txt:`<b>Criada</b>${e.usuarios?.nome?' — '+e.usuarios.nome:''}`});
   eventos.push({t:e.inicio, txt:'<b>Iniciada</b>'});
   (pausas||[]).forEach(p=>{
-    eventos.push({t:p.inicio, txt:`<b>Pausada</b> — ${p.motivo}`});
+    eventos.push({t:p.inicio, txt:`<b>Pausada</b> — ${p.motivo}${p.observacao?' <span style="color:var(--muted)">('+p.observacao+')</span>':''}`});
     if(p.fim) eventos.push({t:p.fim, txt:'<b>Retomada</b>'});
   });
   if(e.status==='devolvida') eventos.push({t:e.atualizado_em||e.fim, txt:`<b>Devolvida</b> — ${e.motivo_devolucao||'sem motivo informado'}`});
