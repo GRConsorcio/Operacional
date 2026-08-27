@@ -1109,7 +1109,7 @@ async function confirmarFinalizar(){
   const { error } = await Q.from('execucoes').update(patch).eq('id',EXEC_ATUAL.id);
   if(error){ toast('Erro: '+error.message); return; }
   if(EXEC_ATUAL.solicitacao_id){
-    await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:patch.observacao||'Concluída via atividade'}).eq('id',EXEC_ATUAL.solicitacao_id);
+    await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:patch.observacao||'Concluída via atividade', resolvido_por_id:ME.id}).eq('id',EXEC_ATUAL.solicitacao_id);
   }
   // Busca de novo (em vez de só zerar) pra pegar automaticamente a próxima
   // atividade da fila, se houver uma (chamado do Demandas que chegou
