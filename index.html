@@ -1853,22 +1853,29 @@ async function deleteUsuario(id, nome){
   registrarAuditoria('usuarios', id, nome, 'apagar', null);
   renderAdmUsuarios(); toast('Usuário apagado.');
 }
+// BUGFIX (2026-08-27): antes "Redefinir senha" chamava sempre a Edge Function
+// operacional-reset-senha (mecanismo antigo, Auth compartilhado do CRM/Portal).
+// Isso ficou inofensivo-mas-inutil pra quem já foi migrado pra login_local
+// (fazerLogin() tenta login_local PRIMEIRO — a senha antiga nunca mais é
+// consultada, então "resetar" nela não tinha efeito nenhum na senha real,
+// silenciosamente). Achado no caso do Deivid: resetou a senha, "funcionou"
+// (sem erro), mas o login continuou recusando a nova senha. Unificado pra
+// sempre usar login_local — todo reset por aqui agora migra a pessoa pra
+// esse mecanismo (se ainda não tiver sido), consistente com fazerLogin().
+function gerarSenhaTemp(){
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let s = ''; for(let i=0;i<10;i++) s += c[Math.floor(Math.random()*c.length)];
+  return s;
+}
 async function resetarSenhaUsuario(id, nome){
-  const senhaCustom = prompt(`Nova senha temporária para "${nome}" (deixe em branco para gerar uma automática):`);
+  const senhaCustom = prompt(`Nova senha para "${nome}" (deixe em branco para gerar uma automática):`);
   if(senhaCustom === null) return;
-  const { data:u } = await Q.from('usuarios').select('auth_user_id,auth_source').eq('id',id).maybeSingle();
-  if(!u?.auth_user_id){ toast('Este usuário não tem login vinculado.'); return; }
-  const url = (u.auth_source==='portal' ? PORTAL_URL : CRM_URL)+'/functions/v1/operacional-reset-senha';
-  try{
-    const resp = await fetch(url, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ caller_usuario_id: ME.id, auth_user_id: u.auth_user_id, password: senhaCustom||'' })
-    });
-    const json = await resp.json();
-    if(json.error){ toast('Erro: '+json.error); return; }
-    registrarAuditoria('usuarios', id, nome, 'redefinir_senha', null);
-    toast(json.senha_temporaria ? `Senha redefinida. Nova senha temporária: ${json.senha_temporaria}` : 'Senha redefinida.');
-  }catch(e){ toast('Erro ao redefinir senha: '+e.message); }
+  const senha = (senhaCustom||'').trim() || gerarSenhaTemp();
+  if(senha.length < 6){ toast('Senha mínima de 6 caracteres.'); return; }
+  const { error } = await Q.rpc('definir_senha_local', { p_caller_id: ME.id, p_alvo_id: id, p_senha: senha });
+  if(error){ toast('Erro: '+error.message); return; }
+  registrarAuditoria('usuarios', id, nome, 'redefinir_senha', null);
+  toast(`Senha redefinida. A partir de agora entra com e-mail/senha só deste app. Nova senha: ${senha}`);
 }
 
 function abrirModalUsuario(id){
