@@ -113,10 +113,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .pill-muted{background:var(--surface2);color:var(--muted)}
 
 /* ===== TIMER CARD ===== */
-.timer-card{background:linear-gradient(135deg,var(--accent),var(--accent) 60%,var(--accent));border-radius:var(--radius);padding:22px;color:#fff;box-shadow:var(--shadow)}
+/* Várias atividades podem rodar em paralelo agora — a linha quebra e cada
+   card fica mais estreito (min 260px) em vez do antigo card único full-width,
+   pra caberem lado a lado (pedido do usuário: "mover a aba de em andamento
+   e o timer para o lado, abrir outro balão com timer de outras demandas"). */
+.timers-row{display:flex;flex-wrap:wrap;gap:16px}
+.timer-card{flex:1 1 260px;max-width:340px;background:linear-gradient(135deg,var(--accent),var(--accent) 60%,var(--accent));border-radius:var(--radius);padding:22px;color:#fff;box-shadow:var(--shadow)}
+.timer-card.timer-card-pausar-todas{flex:0 1 200px;display:flex;align-items:center;justify-content:center;background:var(--surface2);border:1px dashed var(--border);box-shadow:none}
 .timer-card .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;opacity:.85;margin-bottom:4px}
 .timer-card .nome{font-size:17px;font-weight:700;margin-bottom:10px}
-.timer-card .relogio{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;margin-bottom:4px}
+.timer-card .relogio{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;margin-bottom:4px}
 .timer-card .meta{font-size:12px;opacity:.9}
 .timer-card .actions{display:flex;gap:8px;margin-top:16px}
 .timer-card .actions .btn{flex:1;background:rgba(255,255,255,.16);color:#fff}
@@ -203,14 +209,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 
       <!-- ───── HOME (colaborador) ───── -->
       <div class="page on" id="page-home">
-        <div class="grid grid-2" style="margin-bottom:16px">
-          <div id="timer-slot"></div>
-          <div class="card" id="sem-atividade-card">
-            <div class="card-title">O que você vai fazer agora?</div>
-            <button class="btn btn-primary" onclick="abrirNovaAtividade()">+ Iniciar atividade</button>
-            <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('extraordinario')">+ Atividade extraordinária</button>
-            <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('estrategico')">+ Atividade estratégica</button>
-          </div>
+        <div id="timers-row" class="timers-row" style="margin-bottom:16px"></div>
+        <div class="card" id="sem-atividade-card" style="margin-bottom:16px">
+          <div class="card-title" id="sem-atividade-titulo">O que você vai fazer agora?</div>
+          <button class="btn btn-primary" onclick="abrirNovaAtividade()">+ Iniciar atividade</button>
+          <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('extraordinario')">+ Atividade extraordinária</button>
+          <button class="btn btn-muted" style="margin-left:8px" onclick="abrirNovaAtividade('estrategico')">+ Atividade estratégica</button>
         </div>
         <div class="card" style="margin-bottom:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -610,8 +614,10 @@ let ME = null;              // linha de produtividade.usuarios
 let AUTH_SOURCE = null;     // 'crm' | 'portal'
 let SETORES = [];
 let ATIVIDADES = [];
-let EXEC_ATUAL = null;      // execução em_andamento/pausado do usuário
-let PAUSA_ATUAL = null;
+let EXECS_ATIVAS = [];      // [{exec, pausa}] — TODAS as execuções em_andamento/pausado/devolvida do usuário, rodando em paralelo
+let PAUSA_ALVO_ID = null;   // id da execução sendo pausada no modal "Motivo da pausa"
+let FINALIZAR_ALVO_ID = null; // id da execução sendo finalizada no modal "Finalizar"
+function getExecAtiva(id){ return EXECS_ATIVAS.find(x=>x.exec.id===id); }
 let TIMER_INT = null;
 let DEFERRED_INSTALL = null;
 
@@ -832,16 +838,17 @@ function toast(msg){
 async function carregarExecucaoAtual(){
   const { data } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)')
     .eq('usuario_id', ME.id).in('status',['em_andamento','pausado','devolvida']);
-  // Ordena no cliente por fila_prioridade_em (se definida, via "Passar à
-  // frente") ou por inicio — não dá pra fazer isso num .order() do PostgREST
-  // direto porque é um COALESCE entre duas colunas, não uma coluna só.
-  const candidatos = (data||[]).slice().sort((a,b)=>
-    new Date(a.fila_prioridade_em||a.inicio) - new Date(b.fila_prioridade_em||b.inicio));
-  EXEC_ATUAL = candidatos[0] || null;
-  if(EXEC_ATUAL && EXEC_ATUAL.status==='pausado'){
-    const { data:p } = await Q.from('pausas').select('*').eq('execucao_id',EXEC_ATUAL.id).is('fim',null).maybeSingle();
-    PAUSA_ATUAL = p || null;
-  } else PAUSA_ATUAL = null;
+  // Todas as execuções ativas contam tempo real em paralelo agora — sem
+  // conceito de "uma só é a atual e as outras esperam na fila". Ordenadas
+  // por início só pra manter a ordem visual estável (mais antiga primeiro).
+  const candidatos = (data||[]).slice().sort((a,b)=> new Date(a.inicio) - new Date(b.inicio));
+  const idsPausados = candidatos.filter(e=>e.status==='pausado').map(e=>e.id);
+  let pausasPorExec = {};
+  if(idsPausados.length){
+    const { data: pausas } = await Q.from('pausas').select('*').in('execucao_id',idsPausados).is('fim',null);
+    (pausas||[]).forEach(p=>{ pausasPorExec[p.execucao_id]=p; });
+  }
+  EXECS_ATIVAS = candidatos.map(exec=>({exec, pausa: pausasPorExec[exec.id]||null}));
   renderTimerCard();
 }
 
@@ -856,103 +863,122 @@ function fmtTempo(seg){
 let ULTIMO_ALERTA_DESVIO = 0;
 let ULTIMO_ALERTA_PRAZO = 0;
 function tickTimer(){
-  if(!EXEC_ATUAL) return;
-  const el = document.getElementById('timer-relogio');
-  if(!el) return;
-  const inicio = new Date(EXEC_ATUAL.inicio).getTime();
-  const pausadoSeg = EXEC_ATUAL.tempo_pausado_seg||0;
-  let decorridoSeg;
-  if(EXEC_ATUAL.status==='pausado' && PAUSA_ATUAL){
-    decorridoSeg = (new Date(PAUSA_ATUAL.inicio).getTime() - inicio)/1000 - pausadoSeg;
-  } else {
-    decorridoSeg = (Date.now() - inicio)/1000 - pausadoSeg;
-  }
-  el.textContent = fmtTempo(decorridoSeg);
+  EXECS_ATIVAS.forEach(({exec,pausa})=>{
+    const el = document.getElementById('timer-relogio-'+exec.id);
+    if(!el) return;
+    const inicio = new Date(exec.inicio).getTime();
+    const pausadoSeg = exec.tempo_pausado_seg||0;
+    let decorridoSeg;
+    if(exec.status==='pausado' && pausa){
+      decorridoSeg = (new Date(pausa.inicio).getTime() - inicio)/1000 - pausadoSeg;
+    } else {
+      decorridoSeg = (Date.now() - inicio)/1000 - pausadoSeg;
+    }
+    el.textContent = fmtTempo(decorridoSeg);
 
-  if(EXEC_ATUAL.status==='pausado' && PAUSA_ATUAL){
-    const pausaEl = document.getElementById('pausa-relogio');
-    if(pausaEl) pausaEl.textContent = fmtTempo((Date.now() - new Date(PAUSA_ATUAL.inicio).getTime())/1000);
-  }
+    if(exec.status==='pausado' && pausa){
+      const pausaEl = document.getElementById('pausa-relogio-'+exec.id);
+      if(pausaEl) pausaEl.textContent = fmtTempo((Date.now() - new Date(pausa.inicio).getTime())/1000);
+    }
 
-  const badge = document.getElementById('timer-desvio-badge');
-  const padraoMin = EXEC_ATUAL.atividades?.tempo_padrao_min;
-  if(padraoMin && EXEC_ATUAL.status==='em_andamento'){
-    const desvioPct = Math.round((decorridoSeg/60 - padraoMin)/padraoMin*100);
-    if(desvioPct >= 30){
-      if(badge) badge.innerHTML = `<span class="desvio-badge">${ico('alert',11)} +${desvioPct}% do tempo padrão</span>`;
-      if(Date.now()-ULTIMO_ALERTA_DESVIO > 5*60*1000){
-        ULTIMO_ALERTA_DESVIO = Date.now();
-        notificar('Atividade fora do padrão', (EXEC_ATUAL.atividades?.nome||'Atividade')+' já passou '+desvioPct+'% do tempo padrão.');
-      }
+    const badge = document.getElementById('timer-desvio-badge-'+exec.id);
+    const padraoMin = exec.atividades?.tempo_padrao_min;
+    if(padraoMin && exec.status==='em_andamento'){
+      const desvioPct = Math.round((decorridoSeg/60 - padraoMin)/padraoMin*100);
+      if(desvioPct >= 30){
+        if(badge) badge.innerHTML = `<span class="desvio-badge">${ico('alert',11)} +${desvioPct}% do tempo padrão</span>`;
+        if(Date.now()-ULTIMO_ALERTA_DESVIO > 5*60*1000){
+          ULTIMO_ALERTA_DESVIO = Date.now();
+          notificar('Atividade fora do padrão', (exec.atividades?.nome||'Atividade')+' já passou '+desvioPct+'% do tempo padrão.');
+        }
+      } else if(badge){ badge.innerHTML = ''; }
     } else if(badge){ badge.innerHTML = ''; }
-  } else if(badge){ badge.innerHTML = ''; }
 
-  // Prazo (SLA em horas, cadastrado por atividade em Administração) — diferente
-  // do "tempo padrão" acima (que é só um alerta de atenção), passar do prazo é
-  // um estouro de verdade: badge pisca pra todo mundo, independente do cargo.
-  const prazoBadge = document.getElementById('timer-prazo-badge');
-  const slaHoras = EXEC_ATUAL.atividades?.sla_horas;
-  if(slaHoras && (EXEC_ATUAL.status==='em_andamento'||EXEC_ATUAL.status==='pausado')){
-    const horasDecorridas = decorridoSeg/3600;
-    if(horasDecorridas >= slaHoras){
-      if(prazoBadge) prazoBadge.innerHTML = `<span class="prazo-badge">${ico('alert',13)} PRAZO ESTOURADO</span>`;
-      if(Date.now()-ULTIMO_ALERTA_PRAZO > 5*60*1000){
-        ULTIMO_ALERTA_PRAZO = Date.now();
-        notificar('Prazo estourado', (EXEC_ATUAL.atividades?.nome||'Atividade')+' passou do prazo de '+slaHoras+'h.');
-      }
+    // Prazo (SLA em horas, cadastrado por atividade em Administração) — diferente
+    // do "tempo padrão" acima (que é só um alerta de atenção), passar do prazo é
+    // um estouro de verdade: badge pisca pra todo mundo, independente do cargo.
+    const prazoBadge = document.getElementById('timer-prazo-badge-'+exec.id);
+    const slaHoras = exec.atividades?.sla_horas;
+    if(slaHoras && (exec.status==='em_andamento'||exec.status==='pausado')){
+      const horasDecorridas = decorridoSeg/3600;
+      if(horasDecorridas >= slaHoras){
+        if(prazoBadge) prazoBadge.innerHTML = `<span class="prazo-badge">${ico('alert',13)} PRAZO ESTOURADO</span>`;
+        if(Date.now()-ULTIMO_ALERTA_PRAZO > 5*60*1000){
+          ULTIMO_ALERTA_PRAZO = Date.now();
+          notificar('Prazo estourado', (exec.atividades?.nome||'Atividade')+' passou do prazo de '+slaHoras+'h.');
+        }
+      } else if(prazoBadge){ prazoBadge.innerHTML = ''; }
     } else if(prazoBadge){ prazoBadge.innerHTML = ''; }
-  } else if(prazoBadge){ prazoBadge.innerHTML = ''; }
+  });
 }
 
 function renderTimerCard(){
-  const slot = document.getElementById('timer-slot');
-  const semCard = document.getElementById('sem-atividade-card');
-  // BUGFIX (2026-08-25): #timer-slot vazio ainda contava como item do grid
-  // (grid-2 = auto-fit/minmax), sobrando uma coluna em branco do tamanho de
-  // um card inteiro à esquerda de "O que você vai fazer agora?" sempre que
-  // não havia execução em andamento — o usuário via isso como "sidebar sumindo".
-  if(!EXEC_ATUAL){ slot.innerHTML=''; slot.classList.add('hidden'); semCard.classList.remove('hidden'); return; }
-  slot.classList.remove('hidden');
-  semCard.classList.add('hidden');
-  const nome = EXEC_ATUAL.atividades?.nome || (EXEC_ATUAL.tipo==='extraordinario' ? (EXEC_ATUAL.extra_o_que ? 'Chamado: '+EXEC_ATUAL.extra_o_que : 'Atividade extraordinária') : EXEC_ATUAL.tipo==='estrategico' ? 'Atividade estratégica' : 'Atividade');
-  const padrao = EXEC_ATUAL.atividades?.tempo_padrao_min;
-  const sla = EXEC_ATUAL.atividades?.sla_horas;
+  const row = document.getElementById('timers-row');
+  const semCardTitulo = document.getElementById('sem-atividade-titulo');
+  const emAndamentoOuPausadas = EXECS_ATIVAS.filter(x=>x.exec.status!=='devolvida');
+  // "O que você vai fazer agora?" vira "Iniciar mais uma atividade" quando já
+  // existe pelo menos uma rodando — agora dá pra ter várias em paralelo, então
+  // esse card de ação nunca fica escondido (antes sumia com uma atividade ativa).
+  if(semCardTitulo) semCardTitulo.textContent = EXECS_ATIVAS.length ? 'Iniciar mais uma atividade' : 'O que você vai fazer agora?';
 
-  if(EXEC_ATUAL.status==='devolvida'){
-    slot.innerHTML = `<div class="timer-card" style="background:linear-gradient(135deg,var(--red),var(--red))">
-      <div class="lbl">DEVOLVIDA PARA CORREÇÃO</div>
+  if(!EXECS_ATIVAS.length){ row.innerHTML=''; return; }
+
+  row.innerHTML = EXECS_ATIVAS.map(({exec,pausa})=>{
+    const nome = exec.atividades?.nome || (exec.tipo==='extraordinario' ? (exec.extra_o_que ? 'Chamado: '+exec.extra_o_que : 'Atividade extraordinária') : exec.tipo==='estrategico' ? 'Atividade estratégica' : 'Atividade');
+    const padrao = exec.atividades?.tempo_padrao_min;
+    const sla = exec.atividades?.sla_horas;
+
+    if(exec.status==='devolvida'){
+      return `<div class="timer-card" style="background:linear-gradient(135deg,var(--red),var(--red))">
+        <div class="lbl">DEVOLVIDA PARA CORREÇÃO</div>
+        <div class="nome">${nome}</div>
+        <div class="meta" style="margin-bottom:12px">Motivo: ${exec.motivo_devolucao||'—'}</div>
+        <div class="actions">
+          <button class="btn" onclick="revisarDevolvida('${exec.id}')">${ico('play',15)} Revisar</button>
+          <button class="btn" style="background:rgba(255,255,255,.18)" onclick="deleteExecucao('${exec.id}')">${ico('close',15)} Apagar</button>
+        </div>
+      </div>`;
+    }
+
+    return `<div class="timer-card">
+      <div class="lbl">${exec.status==='pausado'?ico('pause',12)+' PAUSADO':ico('play',12)+' EM ANDAMENTO'}</div>
       <div class="nome">${nome}</div>
-      <div class="meta" style="margin-bottom:12px">Motivo: ${EXEC_ATUAL.motivo_devolucao||'—'}</div>
+      <div class="relogio" id="timer-relogio-${exec.id}">00:00:00</div>
+      <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}${sla?(' · Prazo: '+sla+'h'):''}</div>
+      ${exec.status==='pausado' ? `<div class="meta" style="margin-top:8px">Pausado há (${(pausa&&pausa.motivo)||'—'})${(pausa&&pausa.observacao)?' — '+pausa.observacao:''}</div><div class="relogio" id="pausa-relogio-${exec.id}" style="color:var(--gold);font-size:20px">00:00:00</div>` : ''}
+      <div id="timer-desvio-badge-${exec.id}"></div>
+      <div id="timer-prazo-badge-${exec.id}"></div>
       <div class="actions">
-        <button class="btn" onclick="revisarDevolvida()">${ico('play',15)} Revisar</button>
-        <button class="btn" style="background:rgba(255,255,255,.18)" onclick="deleteExecucao('${EXEC_ATUAL.id}')">${ico('close',15)} Apagar</button>
+        ${exec.status==='pausado'
+          ? `<button class="btn" onclick="retomar('${exec.id}')">${ico('play',15)} Retomar</button>`
+          : `<button class="btn" onclick="abrirPausa('${exec.id}')">${ico('pause',15)} Pausar</button>`}
+        <button class="btn" onclick="abrirFinalizar('${exec.id}')">${ico('check',15)} Finalizar</button>
       </div>
     </div>`;
-    return;
-  }
-
-  slot.innerHTML = `<div class="timer-card">
-    <div class="lbl">${EXEC_ATUAL.status==='pausado'?ico('pause',12)+' PAUSADO':ico('play',12)+' EM ANDAMENTO'}</div>
-    <div class="nome">${nome}</div>
-    <div class="relogio" id="timer-relogio">00:00:00</div>
-    <div class="meta">${padrao?('Meta estimada: '+padrao+' min'):''}${sla?(' · Prazo: '+sla+'h'):''}</div>
-    ${EXEC_ATUAL.status==='pausado' ? `<div class="meta" style="margin-top:8px">Pausado há (${(PAUSA_ATUAL&&PAUSA_ATUAL.motivo)||'—'})${(PAUSA_ATUAL&&PAUSA_ATUAL.observacao)?' — '+PAUSA_ATUAL.observacao:''}</div><div class="relogio" id="pausa-relogio" style="color:var(--gold);font-size:22px">00:00:00</div>` : ''}
-    <div id="timer-desvio-badge"></div>
-    <div id="timer-prazo-badge"></div>
-    <div class="actions">
-      ${EXEC_ATUAL.status==='pausado'
-        ? `<button class="btn" onclick="retomar()">${ico('play',15)} Retomar</button>`
-        : `<button class="btn" onclick="abrirPausa()">${ico('pause',15)} Pausar</button>`}
-      <button class="btn" onclick="abrirFinalizar()">${ico('check',15)} Finalizar</button>
-    </div>
-  </div>`;
+  }).join('') + (emAndamentoOuPausadas.filter(x=>x.exec.status==='em_andamento').length>1
+    ? `<div class="timer-card timer-card-pausar-todas"><button class="btn btn-muted" onclick="pausarTodas()">${ico('pause',15)} Pausar todas</button></div>`
+    : '');
 }
-async function revisarDevolvida(){
-  const segEspera = Math.max(0, Math.round((Date.now() - new Date(EXEC_ATUAL.fim).getTime())/1000));
-  const novoPausado = (EXEC_ATUAL.tempo_pausado_seg||0) + segEspera;
-  await Q.from('execucoes').update({status:'em_andamento', fim:null, tempo_pausado_seg:novoPausado}).eq('id',EXEC_ATUAL.id);
-  EXEC_ATUAL.status = 'em_andamento'; EXEC_ATUAL.fim = null; EXEC_ATUAL.tempo_pausado_seg = novoPausado;
-  renderTimerCard();
+async function revisarDevolvida(execId){
+  const item = getExecAtiva(execId);
+  if(!item) return;
+  const exec = item.exec;
+  const segEspera = Math.max(0, Math.round((Date.now() - new Date(exec.fim).getTime())/1000));
+  const novoPausado = (exec.tempo_pausado_seg||0) + segEspera;
+  await Q.from('execucoes').update({status:'em_andamento', fim:null, tempo_pausado_seg:novoPausado}).eq('id',exec.id);
+  await carregarExecucaoAtual();
+}
+async function pausarTodas(){
+  const alvos = EXECS_ATIVAS.filter(x=>x.exec.status==='em_andamento').map(x=>x.exec.id);
+  if(alvos.length<2) return;
+  if(!confirm('Pausar todas as '+alvos.length+' atividades em andamento?')) return;
+  for(const id of alvos){
+    await Q.from('pausas').insert({execucao_id:id, motivo:'Outro', observacao:'Pausada em lote via "Pausar todas"'});
+    await Q.from('execucoes').update({status:'pausado'}).eq('id',id);
+  }
+  await carregarExecucaoAtual();
+  renderHoje();
+  toast('Todas as atividades foram pausadas.');
 }
 
 /* ═══════════ NOVA ATIVIDADE ═══════════ */
@@ -998,15 +1024,13 @@ function renderAtivList(){
 }
 
 async function iniciarAtividade(atividadeId){
-  if(EXEC_ATUAL){ toast('Finalize a atividade atual antes de iniciar outra.'); return; }
   const { data, error } = await Q.from('execucoes').insert({usuario_id:ME.id, atividade_id:atividadeId, tipo:'planejado'}).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
   if(error){ toast('Erro: '+error.message); return; }
-  EXEC_ATUAL = data; PAUSA_ATUAL = null;
-  closeOV('ov-nova'); renderTimerCard();
+  closeOV('ov-nova');
+  await carregarExecucaoAtual();
 }
 
 async function iniciarExtraordinaria(){
-  if(EXEC_ATUAL){ toast('Finalize a atividade atual antes de iniciar outra.'); return; }
   const payload = {
     usuario_id:ME.id, tipo: TIPO_EXTRA_ATUAL || 'extraordinario',
     extra_o_que: document.getElementById('ext-o-que').value.trim(),
@@ -1016,13 +1040,14 @@ async function iniciarExtraordinaria(){
   };
   const { data, error } = await Q.from('execucoes').insert(payload).select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').single();
   if(error){ toast('Erro: '+error.message); return; }
-  EXEC_ATUAL = data; PAUSA_ATUAL = null;
-  closeOV('ov-nova'); renderTimerCard();
+  closeOV('ov-nova');
+  await carregarExecucaoAtual();
 }
 
 /* ═══════════ PAUSAR / RETOMAR ═══════════ */
 const MOTIVOS_COM_SETOR = ['Aguardando aprovação','Aguardando documento','Atendimento solicitado pela gestão'];
-function abrirPausa(){
+function abrirPausa(execId){
+  PAUSA_ALVO_ID = execId;
   document.getElementById('pausa-motivo').value='Almoço';
   document.getElementById('pausa-setor-relacionado').value='';
   document.getElementById('pausa-observacao').value='';
@@ -1037,30 +1062,35 @@ async function confirmarPausa(){
   const motivo = document.getElementById('pausa-motivo').value;
   const setor_relacionado_id = document.getElementById('pausa-setor-relacionado').value || null;
   const observacao = document.getElementById('pausa-observacao').value.trim() || null;
-  const { data:pausa, error } = await Q.from('pausas').insert({execucao_id:EXEC_ATUAL.id, motivo, setor_relacionado_id, observacao}).select().single();
+  const { error } = await Q.from('pausas').insert({execucao_id:PAUSA_ALVO_ID, motivo, setor_relacionado_id, observacao});
   if(error){ toast('Erro: '+error.message); return; }
-  await Q.from('execucoes').update({status:'pausado'}).eq('id',EXEC_ATUAL.id);
-  EXEC_ATUAL.status='pausado'; PAUSA_ATUAL = pausa;
-  closeOV('ov-pausa'); renderTimerCard(); renderHoje();
+  await Q.from('execucoes').update({status:'pausado'}).eq('id',PAUSA_ALVO_ID);
+  closeOV('ov-pausa');
+  await carregarExecucaoAtual();
+  renderHoje();
 }
-async function retomar(){
-  const segundosPausa = Math.round((Date.now() - new Date(PAUSA_ATUAL.inicio).getTime())/1000);
-  await Q.from('pausas').update({fim:new Date().toISOString()}).eq('id',PAUSA_ATUAL.id);
-  const novoPausado = (EXEC_ATUAL.tempo_pausado_seg||0) + segundosPausa;
-  await Q.from('execucoes').update({status:'em_andamento', tempo_pausado_seg:novoPausado}).eq('id',EXEC_ATUAL.id);
-  EXEC_ATUAL.status='em_andamento'; EXEC_ATUAL.tempo_pausado_seg = novoPausado; PAUSA_ATUAL = null;
-  renderTimerCard(); renderHoje();
+async function retomar(execId){
+  const item = getExecAtiva(execId);
+  if(!item || !item.pausa) return;
+  const segundosPausa = Math.round((Date.now() - new Date(item.pausa.inicio).getTime())/1000);
+  await Q.from('pausas').update({fim:new Date().toISOString()}).eq('id',item.pausa.id);
+  const novoPausado = (item.exec.tempo_pausado_seg||0) + segundosPausa;
+  await Q.from('execucoes').update({status:'em_andamento', tempo_pausado_seg:novoPausado}).eq('id',execId);
+  await carregarExecucaoAtual();
+  renderHoje();
 }
 
 /* ═══════════ FINALIZAR ═══════════ */
-function abrirFinalizar(){
-  const checklist = EXEC_ATUAL.atividades?.checklist || [];
+function abrirFinalizar(execId){
+  FINALIZAR_ALVO_ID = execId;
+  const exec = getExecAtiva(execId).exec;
+  const checklist = exec.atividades?.checklist || [];
   document.getElementById('fin-checklist').innerHTML = checklist.length ? (
     `<div class="fld"><label>Checklist obrigatório</label>` +
     checklist.map(c=>`<label style="display:flex;align-items:center;gap:8px;font-weight:400;padding:5px 0"><input type="checkbox" class="fin-check-dyn" style="width:auto"> ${c}</label>`).join('') +
     `</div>`
   ) : '';
-  const campos = EXEC_ATUAL.atividades?.campos_resultado || [];
+  const campos = exec.atividades?.campos_resultado || [];
   document.getElementById('fin-campos').innerHTML = campos.map((c,i)=>
     `<div class="fld"><label>${c}</label><input class="fin-campo-dyn" data-campo="${c}"></div>`).join('');
   document.getElementById('fin-obs').value=''; document.getElementById('fin-anexo').value='';
@@ -1072,10 +1102,11 @@ function abrirFinalizar(){
   document.getElementById('ov-finalizar').classList.add('on');
 }
 async function confirmarFinalizar(){
+  const exec = getExecAtiva(FINALIZAR_ALVO_ID).exec;
   // MUDANÇA (a pedido do GR): checklist incompleto não bloqueia mais o
   // Finalizar — em vez disso, exige que a Observação seja preenchida,
   // explicando por que ficou faltando algo.
-  const checklist = EXEC_ATUAL.atividades?.checklist || [];
+  const checklist = exec.atividades?.checklist || [];
   const checklistCompleto = !checklist.length || Array.from(document.querySelectorAll('.fin-check-dyn')).filter(c=>c.checked).length === checklist.length;
   if(!checklistCompleto && !document.getElementById('fin-obs').value.trim()){
     toast('Checklist incompleto — preencha a Observação explicando o que falta.');
@@ -1103,18 +1134,14 @@ async function confirmarFinalizar(){
     anexos,
     atualizado_em: new Date().toISOString()
   };
-  if(EXEC_ATUAL.atividades?.requer_aprovacao) patch.status = 'aguardando_validacao';
+  if(exec.atividades?.requer_aprovacao) patch.status = 'aguardando_validacao';
   if(isRetrabalho){ patch.tipo='retrabalho'; patch.motivo_retrabalho = document.getElementById('fin-retrabalho-motivo').value; }
   if(document.getElementById('fin-melhoria').checked) patch.sugestao_melhoria = document.getElementById('fin-melhoria-texto').value.trim() || null;
-  const { error } = await Q.from('execucoes').update(patch).eq('id',EXEC_ATUAL.id);
+  const { error } = await Q.from('execucoes').update(patch).eq('id',exec.id);
   if(error){ toast('Erro: '+error.message); return; }
-  if(EXEC_ATUAL.solicitacao_id){
-    await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:patch.observacao||'Concluída via atividade', resolvido_por_id:ME.id}).eq('id',EXEC_ATUAL.solicitacao_id);
+  if(exec.solicitacao_id){
+    await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:patch.observacao||'Concluída via atividade', resolvido_por_id:ME.id}).eq('id',exec.solicitacao_id);
   }
-  // Busca de novo (em vez de só zerar) pra pegar automaticamente a próxima
-  // atividade da fila, se houver uma (chamado do Demandas que chegou
-  // enquanto esta estava rodando) — sem isso, a próxima só apareceria
-  // depois de recarregar a página.
   closeOV('ov-finalizar');
   await carregarExecucaoAtual();
   renderHoje();
@@ -1138,7 +1165,7 @@ async function renderHoje(){
   document.getElementById('hoje-tbody').innerHTML = lista.map(e=>{
     const nome = e.atividades?.nome || (e.tipo==='extraordinario'?('Extraordinária: '+(e.extra_o_que||'').slice(0,40)):e.tipo==='estrategico'?('Estratégica: '+(e.extra_o_que||'').slice(0,40)):'Atividade');
     const tempo = e.fim ? fmtTempo((new Date(e.fim)-new Date(e.inicio))/1000 - (e.tempo_pausado_seg||0)) : '—';
-    let statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : e.status==='aguardando_validacao' ? '<span class="pill pill-gold">Aguardando validação</span>' : e.status==='devolvida' ? '<span class="pill pill-red">Devolvida</span>' : e.status==='em_andamento' && e.id!==EXEC_ATUAL?.id ? '<span class="pill pill-muted">Na fila</span>' : '<span class="pill pill-blue">Em andamento</span>';
+    let statusPill = e.status==='concluido' ? '<span class="pill pill-green">Concluída</span>' : e.status==='pausado' ? '<span class="pill pill-gold">Pausada</span>' : e.status==='aguardando_validacao' ? '<span class="pill pill-gold">Aguardando validação</span>' : e.status==='devolvida' ? '<span class="pill pill-red">Devolvida</span>' : '<span class="pill pill-blue">Em andamento</span>';
     if(e.status==='pausado' && pausaAbertaPorExec[e.id]){
       const p = pausaAbertaPorExec[e.id];
       statusPill += `<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.motivo}${p.observacao?' — '+p.observacao:''}</div>`;
@@ -1152,7 +1179,7 @@ async function deleteExecucao(id){
   const { error } = await Q.from('execucoes').delete().eq('id',id);
   if(error){ toast(mensagemErroExclusao(error)); return; }
   registrarAuditoria('execucoes', id, exec?.atividades?.nome||null, 'apagar', null);
-  if(EXEC_ATUAL?.id===id) await carregarExecucaoAtual();
+  if(getExecAtiva(id)) await carregarExecucaoAtual();
   renderHoje();
   toast('Atividade apagada.');
 }
@@ -1176,10 +1203,9 @@ async function carregarSolicitacoesVisiveis(){
 async function assumirSolicitacao(id){
   const { error } = await Q.from('solicitacoes').update({responsavel_id:ME.id, status:'em_andamento', iniciado_em:new Date().toISOString()}).eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
-  // Sempre cria a execução — se já tiver algo em andamento, esta entra na
-  // fila (não pausa nem substitui nada; carregarExecucaoAtual() sempre pega
-  // a mais antiga ainda em andamento como a "atual" da tela de Início).
-  const { data: jaExiste } = await Q.from('execucoes').select('*, atividades(nome,tempo_padrao_min,sla_horas,setor_id,checklist,campos_resultado,requer_aprovacao)').eq('solicitacao_id',id).maybeSingle();
+  // Sempre cria a execução, com timer próprio rodando de verdade em paralelo
+  // com o que já estiver em andamento — não existe mais "entrar na fila".
+  const { data: jaExiste } = await Q.from('execucoes').select('id').eq('solicitacao_id',id).maybeSingle();
   if(!jaExiste){
     const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
     await Q.from('execucoes').insert({
@@ -1190,19 +1216,16 @@ async function assumirSolicitacao(id){
     });
   }
   await carregarExecucaoAtual();
-  toast(EXEC_ATUAL?.solicitacao_id===id ? 'Chamado assumido — timer iniciado!' : 'Chamado assumido — entrou na fila (você já tem uma atividade em andamento).');
+  toast('Chamado assumido — timer iniciado!');
   renderAgendaDia();
 }
 function renderLinhaSolicitacao(s, exec){
   const horaAbertura = new Date(s.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const assumida = s.responsavel_id===ME.id;
-  const naFila = assumida && exec && exec.status==='em_andamento' && exec.id!==EXEC_ATUAL?.id;
   const link = DEMANDAS_URL+'?ticket='+s.id;
   let acaoCel;
   if(assumida && exec?.status==='pausado'){
     acaoCel = '<span class="pill pill-gold">Pausada</span>';
-  } else if(naFila){
-    acaoCel = `<span class="pill pill-muted">Aguardando fila</span> <button class="btn btn-muted" style="padding:4px 8px;font-size:11.5px" onclick="passarNaFila('${exec.id}')">Passar à frente</button>`;
   } else if(assumida){
     acaoCel = '<span class="pill pill-blue">Você assumiu</span>';
   } else {
@@ -1215,25 +1238,14 @@ function renderLinhaSolicitacao(s, exec){
     <td><a href="${link}" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">Abrir ↗</a></td>
   </tr>`;
 }
-async function passarNaFila(execId){
-  if(!EXEC_ATUAL){ toast('Você não tem atividade em andamento agora.'); return; }
-  if(execId===EXEC_ATUAL.id) return;
-  const ordemAtual = new Date(EXEC_ATUAL.fila_prioridade_em||EXEC_ATUAL.inicio);
-  const novaOrdem = new Date(ordemAtual.getTime()-1000).toISOString();
-  const { error } = await Q.from('execucoes').update({fila_prioridade_em:novaOrdem}).eq('id',execId);
-  if(error){ toast('Erro: '+error.message); return; }
-  await carregarExecucaoAtual();
-  renderAgendaDia();
-  toast('Chamado passou à frente — agora é sua atividade principal.');
-}
 async function renderAgendaDia(){
   const hoje = new Date().toISOString().slice(0,10);
   const { data } = await Q.from('agenda_dia').select('*').eq('usuario_id',ME.id).eq('data',hoje).order('horario_previsto',{ascending:true});
   const lista = data||[];
   AGENDA_HOJE = lista;
   const solicitacoes = await carregarSolicitacoesVisiveis();
-  // Pra distinguir "já assumido e rodando" de "assumido mas na fila" (chamado
-  // extra que chegou enquanto eu já tava com outra coisa em andamento).
+  // exec de cada solicitação já assumida por mim, só pra saber se está pausada
+  // (mostra o selo "Pausada") — cada uma conta tempo próprio em paralelo agora.
   const minhasIds = solicitacoes.filter(s=>s.responsavel_id===ME.id).map(s=>s.id);
   const execPorSolicitacao = {};
   if(minhasIds.length){
