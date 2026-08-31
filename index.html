@@ -592,8 +592,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 <!-- ═══ MODAL: DETALHES DO COLABORADOR (histórico + planejado) ═══ -->
 <div class="ov" id="ov-colab-detalhe">
   <div class="ov-box" style="max-width:600px">
-    <div class="ov-head"><div class="ov-title" id="cd-titulo">Colaborador</div><button class="icon-btn" onclick="closeOV('ov-colab-detalhe')">✕</button></div>
+    <div class="ov-head"><div class="ov-title" id="cd-titulo">Colaborador</div><button class="icon-btn" onclick="fecharDetalhesColab()">✕</button></div>
     <div class="ov-body">
+      <div id="cd-atual-wrap" style="margin-bottom:18px"></div>
       <div class="card-title" style="margin-bottom:8px">Planejado (hoje em diante)</div>
       <div class="tbl-wrap" style="margin-bottom:18px"><table class="tbl"><thead><tr><th>Dia</th><th>Horário</th><th>Planejado</th></tr></thead><tbody id="cd-planejado-tbody"></tbody></table></div>
       <div class="card-title" style="margin-bottom:8px">Histórico (últimos 30 dias)</div>
@@ -1479,11 +1480,24 @@ function tickEquipeTempos(){
    de quem já enxerga a página Equipe (supervisor+/admin), só que agora dá
    pra abrir o histórico completo e o planejamento (hoje + futuro) de UMA
    pessoa específica, não só o instantâneo ao vivo. */
+// Card "agora" no topo do detalhe — mesmo relógio ao vivo da tela Início da
+// própria pessoa, só que somente leitura (sem Pausar/Finalizar: essas ações
+// são da sessão de quem está logado, não faz sentido acionar pelo admin aqui).
+// Pedido do usuário (2026-08-31): monitorar cada colaborador individualmente
+// a partir do Admin, não só pela tabela agregada de "Painel ao vivo".
+let _cdTickTimer=null, _cdAtual=null;
 async function abrirDetalhesColab(usuarioId, nome){
   document.getElementById('cd-titulo').textContent = nome;
   document.getElementById('ov-colab-detalhe').classList.add('on');
   document.getElementById('cd-planejado-tbody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted)">Carregando…</td></tr>';
   document.getElementById('cd-historico-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Carregando…</td></tr>';
+  document.getElementById('cd-atual-wrap').innerHTML = '<div class="card" style="text-align:center;color:var(--muted);padding:14px">Carregando…</div>';
+
+  const { data: atuais } = await Q.from('execucoes').select('*, atividades(nome)').eq('usuario_id',usuarioId).in('status',['em_andamento','pausado']).order('inicio',{ascending:true}).limit(1);
+  _cdAtual = atuais?.[0]||null;
+  _renderCdAtual();
+  clearInterval(_cdTickTimer);
+  if(_cdAtual && _cdAtual.status==='em_andamento') _cdTickTimer=setInterval(_tickCdAtual,1000);
 
   const hojeStr = new Date().toISOString().slice(0,10);
   const { data: planejado } = await Q.from('agenda_dia').select('*').eq('usuario_id',usuarioId).gte('data',hojeStr).order('data',{ascending:true}).order('horario_previsto',{ascending:true});
@@ -1500,6 +1514,31 @@ async function abrirDetalhesColab(usuarioId, nome){
     const status = e.status==='concluido'?'<span class="pill pill-green">Concluída</span>':e.status==='pausado'?'<span class="pill pill-gold">Pausada</span>':e.status==='aguardando_validacao'?'<span class="pill pill-gold">Aguardando validação</span>':e.status==='devolvida'?'<span class="pill pill-red">Devolvida</span>':'<span class="pill pill-blue">Em andamento</span>';
     return `<tr><td>${new Date(e.criado_em).toLocaleDateString('pt-BR')}</td><td>${nomeAtiv}</td><td>${tempo}</td><td>${status}</td><td><button class="btn btn-muted" style="padding:4px 8px;font-size:11.5px" onclick="abrirLinhaDoTempo('${e.id}')">Linha do tempo</button></td></tr>`;
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Sem histórico.</td></tr>';
+}
+function _segCdAtual(){
+  if(!_cdAtual) return 0;
+  const inicio=new Date(_cdAtual.inicio).getTime();
+  const pausado=_cdAtual.tempo_pausado_seg||0;
+  return (Date.now()-inicio)/1000-pausado;
+}
+function _renderCdAtual(){
+  const wrap=document.getElementById('cd-atual-wrap');
+  if(!_cdAtual){ wrap.innerHTML='<div class="card" style="text-align:center;color:var(--muted);padding:14px">Livre — nenhuma atividade em andamento agora.</div>'; return; }
+  const nome=_cdAtual.atividades?.nome || (_cdAtual.tipo==='extraordinario'?(_cdAtual.extra_o_que||'Atividade extraordinária'):_cdAtual.tipo==='estrategico'?'Atividade estratégica':'Atividade');
+  const pausado=_cdAtual.status==='pausado';
+  wrap.innerHTML=`<div class="timer-card" style="max-width:none;${pausado?'background:linear-gradient(135deg,var(--gold),var(--gold))':''}">
+    <div class="lbl">${pausado?ico('pause',12)+' PAUSADO AGORA':ico('play',12)+' EM ANDAMENTO AGORA'}</div>
+    <div class="nome">${nome}</div>
+    <div class="relogio" id="cd-atual-relogio">${fmtTempo(_segCdAtual())}</div>
+  </div>`;
+}
+function _tickCdAtual(){
+  const el=document.getElementById('cd-atual-relogio');
+  if(el) el.textContent=fmtTempo(_segCdAtual());
+}
+function fecharDetalhesColab(){
+  clearInterval(_cdTickTimer); _cdTickTimer=null; _cdAtual=null;
+  closeOV('ov-colab-detalhe');
 }
 
 /* ═══════════ APROVAÇÕES ═══════════ */
@@ -1956,6 +1995,7 @@ async function renderAdmUsuarios(){
     <td>${u.auth_source||'—'}</td>
     <td>${u.ativo?'<span class="pill pill-green">Ativo</span>':'<span class="pill pill-muted">Inativo</span>'}</td>
     <td style="white-space:nowrap">
+      <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirDetalhesColab('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">👁 Ver dashboard</button>
       <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirModalUsuario('${u.id}')">Editar</button>
       <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoUsuario('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
       ${u.auth_user_id?`<button class="btn btn-muted" style="padding:6px 10px" onclick="resetarSenhaUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Redefinir senha</button>`:''}
