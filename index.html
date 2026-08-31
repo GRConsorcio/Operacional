@@ -160,6 +160,34 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 
 .toast{position:fixed;bottom:20px;right:20px;background:var(--text);color:var(--bg);padding:11px 16px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);z-index:200;opacity:0;transform:translateY(8px);transition:.2s}
 .toast.on{opacity:1;transform:translateY(0)}
+
+/* ===== MOBILE ===== */
+#btn-menu-mobile{display:none}
+#sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(10,15,20,.45);z-index:45}
+#sidebar-backdrop.on{display:block}
+@media (max-width:860px){
+  /* A barra lateral vira uma gaveta fora da tela em vez de disputar espaço
+     com o conteúdo — num celular de 375px, os 216px fixos de antes sozinhos
+     já comiam mais de metade da largura útil. */
+  #btn-menu-mobile{display:flex}
+  #sidebar{position:fixed;top:0;left:0;height:100vh;transform:translateX(-100%);transition:transform .22s ease;z-index:50;box-shadow:var(--shadow-lg)}
+  #sidebar.mobile-open{transform:translateX(0)}
+  #topbar{padding:0 12px}
+  #pages{padding:14px}
+  .card{padding:14px}
+  .ov{padding:0}
+  .ov-box{max-width:100%;width:100%;height:100%;max-height:100%;border-radius:0}
+  .ov-head,.ov-foot{padding:14px 16px}
+  .ov-body{padding:16px}
+  /* Toque: alvos maiores e fonte >=16px nos campos (evita o zoom automático
+     do Safari/iOS ao focar um input com fonte menor que 16px). */
+  input,select,textarea{font-size:16px;padding:11px 12px}
+  .btn{padding:12px 16px;font-size:14px}
+  .icon-btn{width:40px;height:40px}
+  .sb-nav-item{padding:12px 10px;font-size:14px}
+  .timer-card{flex-basis:100%;max-width:100%}
+  .timer-card.timer-card-pausar-todas{flex-basis:100%}
+}
 </style>
 </head>
 <body>
@@ -196,9 +224,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     </div>
   </div>
 
+  <div id="sidebar-backdrop" onclick="toggleSidebarMobile()"></div>
+
   <div id="main">
     <div id="topbar">
-      <div id="topbar-title">Início</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="icon-btn" id="btn-menu-mobile" onclick="toggleSidebarMobile()" title="Menu" data-ico="menu"></button>
+        <div id="topbar-title">Início</div>
+      </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="icon-btn" id="btn-instalar" onclick="instalarApp()" style="display:none" title="Instalar app" data-ico="download"></button>
         <button class="icon-btn" onclick="alternarTema()" title="Tema" data-ico="theme"></button>
@@ -603,7 +636,8 @@ const ICO = {
   pause:'<path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/>',
   check:'<path d="M4 12.5l5.5 5.5L20 6"/>',
   alert:'<path d="M12 3.5L2.5 20h19z"/><path d="M12 9.5v5M12 17.2v.1"/>',
-  plus:'<path d="M12 5v14M5 12h14"/>'
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  menu:'<path d="M4 6.5h16M4 12h16M4 17.5h16"/>'
 };
 function ico(name, size){
   size = size || 17;
@@ -811,6 +845,17 @@ function irPara(p){
   if(p==='individual') renderIndividual();
   if(p==='relatorios') renderRelatorios();
   if(p==='admin') renderAdmin();
+  fecharSidebarMobile();
+}
+
+/* ═══════════ MENU MOBILE ═══════════ */
+function toggleSidebarMobile(){
+  document.getElementById('sidebar').classList.toggle('mobile-open');
+  document.getElementById('sidebar-backdrop').classList.toggle('on');
+}
+function fecharSidebarMobile(){
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebar-backdrop').classList.remove('on');
 }
 
 /* ═══════════ TEMA ═══════════ */
@@ -1261,12 +1306,28 @@ async function renderAgendaDia(){
   </tr>`).join('');
   document.getElementById('agenda-tbody').innerHTML = (linhasSolicitacoes+linhasPessoais) || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Nada planejado ainda pra hoje.</td></tr>';
 }
+// Admin vê atividades de TODOS os setores nesse dropdown — como times
+// diferentes cadastram atividades com o mesmo nome (ex.: "Atendimento a lead"
+// existe tanto em Comercial Chis quanto em Comercial Luiz, cada um com seu
+// próprio catálogo), uma lista achatada mostrava nomes repetidos sem
+// distinção nenhuma, parecendo duplicata. Agrupar por setor (<optgroup>)
+// resolve sem mexer nos dados — não são de fato duplicatas, são catálogos
+// paralelos por equipe, igual o resto do app já trata (abas de setor em
+// "Nova atividade").
+function _opcoesAtividadeAgrupadas(lista){
+  if(!isAdmin()) return lista.map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
+  const porSetor={};
+  lista.forEach(a=>{ (porSetor[a.setor_id]=porSetor[a.setor_id]||[]).push(a); });
+  return SETORES.filter(s=>porSetor[s.id]).map(s=>
+    `<optgroup label="${s.nome}">${porSetor[s.id].map(a=>`<option value="${a.id}">${a.nome}</option>`).join('')}</optgroup>`
+  ).join('');
+}
 function abrirAgendaItem(){
   document.getElementById('ag-id').value=''; document.getElementById('ag-horario').value=''; document.getElementById('ag-titulo').value='';
   document.getElementById('ag-dia').value='hoje';
   // Mesma regra do Nova Atividade: colaborador só vê atividade pré-definida do próprio setor.
   const atividadesVisiveis = isAdmin() ? ATIVIDADES : ATIVIDADES.filter(a=>a.setor_id===ME.setor_id);
-  document.getElementById('ag-atividade').innerHTML = '<option value="">— Digitar manualmente —</option>'+atividadesVisiveis.map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
+  document.getElementById('ag-atividade').innerHTML = '<option value="">— Digitar manualmente —</option>'+_opcoesAtividadeAgrupadas(atividadesVisiveis);
   document.getElementById('ov-agenda').classList.add('on');
 }
 function preencherTituloAgenda(atividadeId){
