@@ -1184,7 +1184,12 @@ async function confirmarFinalizar(){
   if(document.getElementById('fin-melhoria').checked) patch.sugestao_melhoria = document.getElementById('fin-melhoria-texto').value.trim() || null;
   const { error } = await Q.from('execucoes').update(patch).eq('id',exec.id);
   if(error){ toast('Erro: '+error.message); return; }
-  if(exec.solicitacao_id){
+  // BUGFIX: isso rodava mesmo quando patch.status virou 'aguardando_validacao'
+  // (atividade requer aprovação) — o chamado no Demandas era marcado "Resolvido"
+  // antes da validação de verdade acontecer. Agora só fecha o chamado quando a
+  // execução realmente concluiu; se precisar de aprovação, quem fecha o chamado
+  // é aprovarExecucao() (quando o supervisor aprova de fato).
+  if(exec.solicitacao_id && patch.status==='concluido'){
     await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:patch.observacao||'Concluída via atividade', resolvido_por_id:ME.id}).eq('id',exec.solicitacao_id);
   }
   closeOV('ov-finalizar');
@@ -1516,8 +1521,15 @@ async function renderAprovacoes(){
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Nada aguardando validação.</td></tr>';
 }
 async function aprovarExecucao(id){
+  const { data: exec } = await Q.from('execucoes').select('solicitacao_id,observacao').eq('id',id).maybeSingle();
   const { error } = await Q.from('execucoes').update({status:'concluido', aprovado_por:ME.id, aprovado_em:new Date().toISOString()}).eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
+  // Atividade que exige aprovação só fecha o chamado vinculado no Demandas
+  // aqui, na aprovação de verdade — não em confirmarFinalizar() (isso ficava
+  // "Resolvido" no Demandas antes da validação acontecer).
+  if(exec?.solicitacao_id){
+    await Q.from('solicitacoes').update({status:'concluida', concluido_em:new Date().toISOString(), resultado:exec.observacao||'Concluída via atividade', resolvido_por_id:ME.id}).eq('id',exec.solicitacao_id);
+  }
   renderAprovacoes(); toast('Atividade aprovada.');
 }
 function abrirDevolver(id){
@@ -1529,8 +1541,15 @@ async function confirmarDevolucao(){
   const id = document.getElementById('dev-exec-id').value;
   const motivo = document.getElementById('dev-motivo').value.trim();
   if(!motivo){ toast('Informe o motivo da devolução.'); return; }
+  const { data: exec } = await Q.from('execucoes').select('solicitacao_id').eq('id',id).maybeSingle();
   const { error } = await Q.from('execucoes').update({status:'devolvida', motivo_devolucao:motivo}).eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
+  // Se o chamado do Demandas já tinha sido fechado antes dessa correção de
+  // fluxo, devolver a atividade reabre ele — não pode ficar "Resolvido" lá
+  // enquanto o trabalho volta pro responsável pra correção aqui.
+  if(exec?.solicitacao_id){
+    await Q.from('solicitacoes').update({status:'em_andamento', concluido_em:null}).eq('id',exec.solicitacao_id);
+  }
   closeOV('ov-devolver'); renderAprovacoes(); toast('Devolvido para correção.');
 }
 
