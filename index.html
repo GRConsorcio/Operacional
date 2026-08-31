@@ -1255,24 +1255,18 @@ async function assumirSolicitacao(id){
   if(error){ toast('Erro: '+error.message); return; }
   // Sempre cria a execução, com timer próprio rodando de verdade em paralelo
   // com o que já estiver em andamento — não existe mais "entrar na fila".
-  // Pedido do usuário (2026-08-31): assumir a demanda NÃO deve começar a
-  // contar tempo sozinho — nasce PAUSADA (com uma pausa já aberta), só passa
-  // a contar quando a pessoa clicar em "Retomar" de propósito.
   const { data: jaExiste } = await Q.from('execucoes').select('id').eq('solicitacao_id',id).maybeSingle();
   if(!jaExiste){
     const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
-    const { data: novaExec, error: errExec } = await Q.from('execucoes').insert({
-      usuario_id: ME.id, tipo:'extraordinario', solicitacao_id: id, status:'pausado',
+    await Q.from('execucoes').insert({
+      usuario_id: ME.id, tipo:'extraordinario', solicitacao_id: id,
       extra_o_que: s.assunto, extra_por_que: 'Chamado recebido pelo Demandas',
       extra_quem_solicitou: s.solicitante_nome_externo||'—',
       extra_setor_origem: s.origem?.nome||'—'
-    }).select('id').single();
-    if(!errExec && novaExec){
-      await Q.from('pausas').insert({execucao_id:novaExec.id, motivo:'Outro', observacao:'Aguardando início — clique em Retomar pra começar a contar o tempo'});
-    }
+    });
   }
   await carregarExecucaoAtual();
-  toast('Chamado assumido — clique em Retomar quando for começar a trabalhar nele.');
+  toast('Chamado assumido — timer iniciado!');
   renderAgendaDia();
 }
 function renderLinhaSolicitacao(s, exec){
