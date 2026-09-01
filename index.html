@@ -953,19 +953,41 @@ async function iniciarApp(){
   iniciarRealtimeLiberacoes();
 }
 
-/* ═══════════ REALTIME: avisa quando chega chamado novo do Demandas ═══════════ */
+/* ═══════════ REALTIME: avisa quando chega chamado novo do Demandas ═══════════
+   Atualiza a lista sempre (não só quando curPage==='home') — assim, quando a
+   pessoa voltar pra tela Início ela já encontra os dados frescos, sem precisar
+   estar olhando a tela no exato momento em que o chamado chegou. Escuta INSERT
+   (chamado novo) e UPDATE (reatribuído/status mudou) porque os dois afetam
+   quem consegue ver o quê em carregarSolicitacoesVisiveis(). Tem também um
+   poll de 20s como rede de segurança — WebSocket de realtime é conhecido por
+   cair silenciosamente em PWA no celular (tela bloqueada, app em segundo
+   plano) sem reconectar sozinho de forma perceptível; o poll garante que o
+   pior caso ainda é "até 20s de atraso", nunca "precisa dar F5". */
 let CANAL_SOLICITACOES = null;
+let SOLICITACOES_WATCHDOG_INICIADO = false;
 function iniciarRealtimeSolicitacoes(){
   if(CANAL_SOLICITACOES){ sbCrm.removeChannel(CANAL_SOLICITACOES); CANAL_SOLICITACOES=null; }
   CANAL_SOLICITACOES = sbCrm.channel('produtividade-solicitacoes-'+ME.id)
     .on('postgres_changes', {event:'INSERT', schema:'produtividade', table:'solicitacoes'}, (payload)=>{
       const s = payload.new;
       const visivel = ['admin','gerente','diretoria'].includes(ME.cargo) || s.setor_destino_id===ME.setor_id;
-      if(!visivel) return;
-      notificar('Novo chamado: '+s.assunto, 'Setor: '+(SETORES.find(x=>x.id===s.setor_destino_id)?.nome||'—'));
-      if(curPage==='home') renderAgendaDia();
+      if(visivel) notificar('Novo chamado: '+s.assunto, 'Setor: '+(SETORES.find(x=>x.id===s.setor_destino_id)?.nome||'—'));
+      renderAgendaDia();
+    })
+    .on('postgres_changes', {event:'UPDATE', schema:'produtividade', table:'solicitacoes'}, ()=>{
+      renderAgendaDia();
     })
     .subscribe();
+  if(SOLICITACOES_WATCHDOG_INICIADO) return;
+  SOLICITACOES_WATCHDOG_INICIADO = true;
+  setInterval(()=>{ if(curPage==='home') renderAgendaDia(); }, 20000);
+  // Quando a aba/PWA volta a ficar visível (celular saindo de segundo plano,
+  // tela desbloqueada), reconecta o canal do zero e busca os dados na hora —
+  // não espera o próximo tick do poll de 20s. Registrado uma única vez (guard
+  // acima) pra não empilhar um listener novo a cada reconexão.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible' && ME){ iniciarRealtimeSolicitacoes(); renderAgendaDia(); }
+  });
 }
 
 let curPage = 'home';
@@ -975,6 +997,7 @@ function irPara(p){
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('on'));
   document.getElementById('page-'+p).classList.add('on');
   document.getElementById('topbar-title').textContent = {home:'Início',equipe:'Painel ao vivo',aprovacoes:'Aprovações',individual:'Meu desempenho',relatorios:'Relatórios',admin:'Administração',privacidade:'Privacidade'}[p];
+  if(p==='home') renderAgendaDia();
   if(p==='equipe') renderEquipe();
   if(p==='aprovacoes') renderAprovacoes();
   if(p==='individual') renderIndividual();
