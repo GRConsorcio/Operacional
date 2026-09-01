@@ -131,6 +131,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 /* ===== MODAL ===== */
 .ov{position:fixed;inset:0;background:rgba(10,15,20,.45);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
 .ov.on{display:flex}
+/* ov-timeline pode abrir por cima de outro modal já aberto (ex: dentro do
+   detalhe do colaborador) — sem isso os dois ficam com o mesmo z-index e
+   quem vence é só a ordem no HTML, deixando a linha do tempo atrás. */
+#ov-timeline{z-index:110}
 .ov-box{background:var(--surface);border-radius:var(--radius);width:100%;max-width:440px;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow)}
 .ov-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 .ov-title{font-size:15px;font-weight:700}
