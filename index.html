@@ -2205,7 +2205,7 @@ async function renderAdmUsuarios(){
       <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirDetalhesColab('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">👁 Ver dashboard</button>
       <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirModalUsuario('${u.id}')">Editar</button>
       <button class="btn btn-muted" style="padding:6px 10px" onclick="toggleAtivoUsuario('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
-      ${u.auth_user_id?`<button class="btn btn-muted" style="padding:6px 10px" onclick="resetarSenhaUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Redefinir senha</button>`:''}
+      <button class="btn btn-muted" style="padding:6px 10px" onclick="resetarSenhaUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Redefinir senha</button>
       <button class="btn btn-danger" style="padding:6px 10px" onclick="deleteUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\\'")}')">Apagar</button>
     </td>
   </tr>`).join('');
