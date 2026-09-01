@@ -198,10 +198,18 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <img src="logo.svg" class="login-logo">
     <div class="login-title">Operacional</div>
     <div class="login-sub">Gestão de produtividade — GR Consórcio</div>
-    <div class="fld"><label>E-mail</label><input id="lg-email" type="email" placeholder="voce@grconsorcio.com.br"></div>
-    <div class="fld"><label>Senha</label><input id="lg-senha" type="password" placeholder="••••••••"></div>
-    <button class="btn btn-primary btn-block" id="lg-btn" onclick="fazerLogin()">Entrar</button>
-    <div id="login-error"></div>
+    <div id="login-form">
+      <div class="fld"><label>E-mail</label><input id="lg-email" type="email" placeholder="voce@grconsorcio.com.br"></div>
+      <div class="fld"><label>Senha</label><input id="lg-senha" type="password" placeholder="••••••••"></div>
+      <button class="btn btn-primary btn-block" id="lg-btn" onclick="fazerLogin()">Entrar</button>
+      <div id="login-error"></div>
+    </div>
+    <div id="login-bloqueio" class="hidden" style="text-align:center">
+      <div style="font-size:14px;margin-bottom:14px" id="lb-msg"></div>
+      <button class="btn btn-primary btn-block" id="lb-btn-solicitar" onclick="solicitarLiberacaoEntrada()">Solicitar liberação ao admin</button>
+      <div id="lb-status" style="font-size:12.5px;color:var(--muted);margin-top:10px"></div>
+      <button class="btn btn-muted btn-block" style="margin-top:10px" onclick="cancelarBloqueioEntrada()">Voltar</button>
+    </div>
   </div>
 </div>
 
@@ -215,7 +223,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
     <a class="sb-nav-item" data-ico="inbox" href="https://grconsorcio.github.io/Demandas/" target="_blank" rel="noopener" style="text-decoration:none"><span>Demandas ↗</span></a>
     <div class="sb-nav-item" data-page="individual" data-ico="chart" onclick="irPara('individual')"><span>Meu desempenho</span></div>
     <div class="sb-nav-item hidden" id="nav-relatorios" data-page="relatorios" data-ico="trending" onclick="irPara('relatorios')"><span>Relatórios</span></div>
-    <div class="sb-nav-item hidden" id="nav-admin" data-page="admin" data-ico="settings" onclick="irPara('admin')"><span>Administração</span></div>
+    <div class="sb-nav-item hidden" id="nav-admin" data-page="admin" data-ico="settings" onclick="irPara('admin')"><span>Administração</span><span class="pill pill-red hidden" id="adm-badge-liberacoes" style="margin-left:auto"></span></div>
     <div class="sb-foot">
       <b id="sb-user-nome">—</b>
       <span id="sb-user-cargo">—</span><br>
@@ -351,6 +359,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
           <div class="setor-tab on" onclick="admTab('usuarios',this)">Usuários</div>
           <div class="setor-tab" onclick="admTab('setores',this)">Setores</div>
           <div class="setor-tab" onclick="admTab('atividades',this)">Atividades</div>
+          <div class="setor-tab" onclick="admTab('liberacoes',this)">Liberações<span class="pill pill-red hidden" id="adm-tab-badge-liberacoes" style="margin-left:6px"></span></div>
           <div class="setor-tab" onclick="admTab('historico',this)">Histórico</div>
         </div>
 
@@ -376,6 +385,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
             <button class="btn btn-primary" onclick="abrirModalAtividade()">+ Nova atividade</button>
           </div>
           <div id="adm-atividades-grupos"></div>
+        </div>
+
+        <div id="adm-liberacoes" class="card hidden">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div class="card-title" style="margin:0">Liberações de entrada após as 8:40</div>
+          </div>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Quem</th><th>Data</th><th>Pedido às</th><th>Status</th><th></th></tr></thead><tbody id="adm-liberacoes-tbody"></tbody></table></div>
         </div>
 
         <div id="adm-historico" class="card hidden">
@@ -723,6 +739,8 @@ async function depoisDoLoginLocal(row){
     document.getElementById('lg-btn').textContent = 'Entrar';
     return;
   }
+  const pode = await checarHorarioEntrada(data, {tipo:'local'});
+  if(!pode){ document.getElementById('lg-btn').textContent = 'Entrar'; return; }
   ME = data;
   localStorage.setItem('op_auth_source', 'local');
   localStorage.setItem('op_local_usuario_id', ME.id);
@@ -744,9 +762,124 @@ async function depoisDoLogin(email, authUserId){
     await sbCrm.auth.signOut(); await sbPortal.auth.signOut();
     return;
   }
+  const pode = await checarHorarioEntrada(data, {tipo:'auth', authSource:AUTH_SOURCE});
+  if(!pode){ document.getElementById('lg-btn').textContent = 'Entrar'; return; }
   ME = data;
   localStorage.setItem('op_auth_source', AUTH_SOURCE);
   await iniciarApp();
+}
+
+/* ═══════════ CONTROLE DE HORÁRIO DE ENTRADA (não-admin não entra depois das 8:40 sem liberação) ═══════════ */
+const HORARIO_LIMITE_ENTRADA = 8*60+40; // 08:40, em minutos desde a meia-noite
+function hojeStrLocal(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function passouHorarioLimite(){
+  const d = new Date();
+  return (d.getHours()*60+d.getMinutes()) >= HORARIO_LIMITE_ENTRADA;
+}
+// Liberação já usada hoje fica guardada no aparelho — evita reabrir o pedido a
+// cada reload do mesmo dia pra quem já foi aprovado (ou entrou antes das 8:40).
+function entradaJaLiberadaHoje(usuarioId){
+  return localStorage.getItem('op_entrada_ok_'+usuarioId) === hojeStrLocal();
+}
+function marcarEntradaLiberadaHoje(usuarioId){
+  localStorage.setItem('op_entrada_ok_'+usuarioId, hojeStrLocal());
+}
+
+let BLOQUEIO_ME = null, BLOQUEIO_RESUME = null, BLOQUEIO_POLL = null;
+
+// Chamado no fim de cada fluxo de login, já com o usuário autenticado e ativo.
+// true = pode seguir pro iniciarApp(); false = ficou na tela de bloqueio.
+async function checarHorarioEntrada(usuario, resume){
+  if(usuario.cargo==='admin') return true;
+  if(!passouHorarioLimite()) return true;
+  if(entradaJaLiberadaHoje(usuario.id)) return true;
+
+  const { data: pedido } = await Q.from('liberacoes_entrada').select('*').eq('usuario_id',usuario.id).eq('data',hojeStrLocal()).maybeSingle();
+  if(pedido && pedido.status==='aprovado'){ marcarEntradaLiberadaHoje(usuario.id); return true; }
+
+  bloquearEntradaTela(usuario, resume, pedido);
+  return false;
+}
+
+function bloquearEntradaTela(usuario, resume, pedido){
+  BLOQUEIO_ME = usuario; BLOQUEIO_RESUME = resume;
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('login-bloqueio').classList.remove('hidden');
+  const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('lb-msg').textContent = `São ${hora}. A entrada depois das 8:40 precisa de liberação do administrador.`;
+  if(pedido && pedido.status==='pendente'){
+    mostrarAguardandoLiberacao();
+  } else {
+    document.getElementById('lb-btn-solicitar').classList.remove('hidden');
+    document.getElementById('lb-btn-solicitar').disabled = false;
+    document.getElementById('lb-btn-solicitar').textContent = (pedido && pedido.status==='negado') ? 'Solicitar novamente' : 'Solicitar liberação ao admin';
+    document.getElementById('lb-status').textContent = (pedido && pedido.status==='negado') ? 'O administrador negou sua solicitação anterior.' : '';
+  }
+}
+
+async function solicitarLiberacaoEntrada(){
+  if(!BLOQUEIO_ME) return;
+  document.getElementById('lb-btn-solicitar').disabled = true;
+  const { error } = await Q.from('liberacoes_entrada').upsert({
+    usuario_id: BLOQUEIO_ME.id, usuario_nome: BLOQUEIO_ME.nome, data: hojeStrLocal(),
+    status: 'pendente', solicitado_em: new Date().toISOString(), respondido_em: null, respondido_por: null
+  }, {onConflict:'usuario_id,data'});
+  if(error){ document.getElementById('lb-btn-solicitar').disabled = false; document.getElementById('lb-status').textContent = 'Erro ao enviar pedido: '+error.message; return; }
+  mostrarAguardandoLiberacao();
+}
+
+function mostrarAguardandoLiberacao(){
+  document.getElementById('lb-btn-solicitar').classList.add('hidden');
+  document.getElementById('lb-status').textContent = 'Pedido enviado. Aguardando aprovação do administrador...';
+  if(BLOQUEIO_POLL) clearInterval(BLOQUEIO_POLL);
+  BLOQUEIO_POLL = setInterval(verificarLiberacaoPendente, 4000);
+}
+
+async function verificarLiberacaoPendente(){
+  if(!BLOQUEIO_ME) return;
+  const { data } = await Q.from('liberacoes_entrada').select('*').eq('usuario_id',BLOQUEIO_ME.id).eq('data',hojeStrLocal()).maybeSingle();
+  if(!data) return;
+  if(data.status==='aprovado'){
+    clearInterval(BLOQUEIO_POLL); BLOQUEIO_POLL=null;
+    document.getElementById('lb-status').textContent = 'Liberado! Entrando...';
+    await concluirEntradaLiberada();
+  } else if(data.status==='negado'){
+    clearInterval(BLOQUEIO_POLL); BLOQUEIO_POLL=null;
+    document.getElementById('lb-btn-solicitar').classList.remove('hidden');
+    document.getElementById('lb-btn-solicitar').disabled = false;
+    document.getElementById('lb-btn-solicitar').textContent = 'Solicitar novamente';
+    document.getElementById('lb-status').textContent = 'O administrador negou sua solicitação.';
+  }
+}
+
+async function concluirEntradaLiberada(){
+  const usuario = BLOQUEIO_ME, resume = BLOQUEIO_RESUME;
+  marcarEntradaLiberadaHoje(usuario.id);
+  cancelarBloqueioEntrada(true);
+  ME = usuario;
+  if(resume.tipo==='local'){
+    localStorage.setItem('op_auth_source','local');
+    localStorage.setItem('op_local_usuario_id', ME.id);
+  } else {
+    AUTH_SOURCE = resume.authSource;
+    localStorage.setItem('op_auth_source', AUTH_SOURCE);
+  }
+  await iniciarApp();
+}
+
+function cancelarBloqueioEntrada(mantendoDados){
+  if(BLOQUEIO_POLL){ clearInterval(BLOQUEIO_POLL); BLOQUEIO_POLL=null; }
+  document.getElementById('login-bloqueio').classList.add('hidden');
+  document.getElementById('login-form').classList.remove('hidden');
+  document.getElementById('lg-btn').textContent = 'Entrar';
+  if(!mantendoDados){
+    BLOQUEIO_ME = null; BLOQUEIO_RESUME = null;
+    sbCrm.auth.signOut(); sbPortal.auth.signOut();
+    document.getElementById('lg-senha').value = '';
+  }
 }
 
 async function tentarSessaoSalva(){
@@ -817,6 +950,7 @@ async function iniciarApp(){
   verificarLembretesAgenda();
   setInterval(verificarLembretesAgenda, 20000);
   iniciarRealtimeSolicitacoes();
+  iniciarRealtimeLiberacoes();
 }
 
 /* ═══════════ REALTIME: avisa quando chega chamado novo do Demandas ═══════════ */
@@ -1936,11 +2070,61 @@ async function renderRelatorios(){
 function admTab(nome, el){
   document.querySelectorAll('#page-admin .setor-tab').forEach(t=>t.classList.remove('on'));
   el.classList.add('on');
-  ['usuarios','setores','atividades','historico'].forEach(n=>document.getElementById('adm-'+n).classList.toggle('hidden', n!==nome));
+  ['usuarios','setores','atividades','liberacoes','historico'].forEach(n=>document.getElementById('adm-'+n).classList.toggle('hidden', n!==nome));
   if(nome==='historico') renderAdmHistorico();
+  if(nome==='liberacoes') renderAdmLiberacoes();
 }
 async function renderAdmin(){
-  await Promise.all([renderAdmUsuarios(), renderAdmSetores(), renderAdmAtividades()]);
+  await Promise.all([renderAdmUsuarios(), renderAdmSetores(), renderAdmAtividades(), atualizarBadgeLiberacoes()]);
+}
+
+/* ═══════════ LIBERAÇÕES DE ENTRADA (aprovação do pedido de entrar depois das 8:40) ═══════════ */
+async function atualizarBadgeLiberacoes(){
+  if(!isAdmin()) return;
+  const { count } = await Q.from('liberacoes_entrada').select('id',{count:'exact',head:true}).eq('status','pendente');
+  const n = count||0;
+  [document.getElementById('adm-badge-liberacoes'), document.getElementById('adm-tab-badge-liberacoes')].forEach(el=>{
+    if(!el) return;
+    el.textContent = n>0 ? String(n) : '';
+    el.classList.toggle('hidden', n===0);
+  });
+}
+async function renderAdmLiberacoes(){
+  const hoje = hojeStrLocal();
+  const { data } = await Q.from('liberacoes_entrada').select('*').gte('data',hoje).order('solicitado_em',{ascending:false});
+  const statusPill = {pendente:'<span class="pill pill-gold">Pendente</span>', aprovado:'<span class="pill pill-green">Aprovado</span>', negado:'<span class="pill pill-red">Negado</span>'};
+  document.getElementById('adm-liberacoes-tbody').innerHTML = (data||[]).map(l=>`<tr>
+    <td>${l.usuario_nome||'—'}</td>
+    <td>${l.data}</td>
+    <td>${new Date(l.solicitado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td>
+    <td>${statusPill[l.status]||l.status}</td>
+    <td style="white-space:nowrap">
+      ${l.status==='pendente' ? `<button class="btn btn-primary" style="padding:6px 10px" onclick="responderLiberacao('${l.id}',true)">Aprovar</button>
+      <button class="btn btn-danger" style="padding:6px 10px" onclick="responderLiberacao('${l.id}',false)">Negar</button>` : ''}
+    </td>
+  </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Nenhum pedido hoje.</td></tr>';
+  atualizarBadgeLiberacoes();
+}
+async function responderLiberacao(id, aprovar){
+  const { error } = await Q.from('liberacoes_entrada').update({
+    status: aprovar?'aprovado':'negado', respondido_em: new Date().toISOString(), respondido_por: ME.nome
+  }).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  renderAdmLiberacoes();
+}
+let CANAL_LIBERACOES = null;
+function iniciarRealtimeLiberacoes(){
+  if(!isAdmin()) return;
+  if(CANAL_LIBERACOES){ sbCrm.removeChannel(CANAL_LIBERACOES); CANAL_LIBERACOES=null; }
+  CANAL_LIBERACOES = sbCrm.channel('produtividade-liberacoes-'+ME.id)
+    .on('postgres_changes', {event:'INSERT', schema:'produtividade', table:'liberacoes_entrada'}, (payload)=>{
+      notificar('Pedido de entrada atrasada', (payload.new.usuario_nome||'Alguém')+' pediu liberação pra entrar depois das 8:40.');
+      atualizarBadgeLiberacoes();
+      if(curPage==='admin') renderAdmLiberacoes();
+    })
+    .subscribe();
+  atualizarBadgeLiberacoes();
+  setInterval(atualizarBadgeLiberacoes, 30000);
 }
 
 /* ═══════════ AUDITORIA ═══════════ */
