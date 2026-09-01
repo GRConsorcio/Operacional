@@ -1573,7 +1573,10 @@ async function confirmarLembreteFeito(){
 
 /* ═══════════ PAINEL AO VIVO (equipe) ═══════════ */
 async function renderEquipe(){
-  let usuariosQ = Q.from('usuarios').select('*').eq('ativo',true).neq('cargo','admin');
+  // Admins eram excluídos daqui de propósito — pedido do usuário pra que o
+  // Painel ao vivo mostre os admins também (só quem já tem acesso à página,
+  // via podeVerEquipe(), vê essa lista de qualquer forma).
+  let usuariosQ = Q.from('usuarios').select('*').eq('ativo',true);
   if(isSupervisor() && ME.setor_id) usuariosQ = usuariosQ.eq('setor_id', ME.setor_id);
   const { data: usuarios } = await usuariosQ;
   const ids = (usuarios||[]).map(u=>u.id);
