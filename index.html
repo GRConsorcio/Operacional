@@ -992,6 +992,17 @@ function iniciarRealtimeSolicitacoes(){
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='visible' && ME){ iniciarRealtimeSolicitacoes(); renderAgendaDia(); }
   });
+  // BUGFIX (relatado pelo usuário, 2026-09-02): "se fica um tempo aberto e cai
+  // outra demanda, não atualiza sem F5". O reconnect acima só dispara numa
+  // TROCA de visibilidade (minimizar/restaurar) — se a aba fica aberta e em
+  // primeiro plano o tempo todo (ex: monitor dedicado, PC sempre ligado nessa
+  // tela), o WebSocket pode cair silenciosamente sem NUNCA disparar
+  // visibilitychange, e o canal fica morto até alguém dar F5 (o poll de 20s
+  // continua rodando e mostraria dados frescos, mas o AVISO de chamado novo
+  // depende do evento do canal em si, que já não chega mais). Reconecta o
+  // canal do zero a cada 90s, incondicionalmente — garante que ele nunca
+  // fica morto por mais que isso, mesmo sem nenhuma troca de aba.
+  setInterval(()=>{ if(ME) iniciarRealtimeSolicitacoes(); }, 90000);
 }
 
 let curPage = 'home';
@@ -2143,6 +2154,7 @@ async function responderLiberacao(id, aprovar){
   renderAdmLiberacoes();
 }
 let CANAL_LIBERACOES = null;
+let LIBERACOES_WATCHDOG_INICIADO = false;
 function iniciarRealtimeLiberacoes(){
   if(!isAdmin()) return;
   if(CANAL_LIBERACOES){ sbCrm.removeChannel(CANAL_LIBERACOES); CANAL_LIBERACOES=null; }
@@ -2154,7 +2166,15 @@ function iniciarRealtimeLiberacoes(){
     })
     .subscribe();
   atualizarBadgeLiberacoes();
+  if(LIBERACOES_WATCHDOG_INICIADO) return;
+  LIBERACOES_WATCHDOG_INICIADO = true;
   setInterval(atualizarBadgeLiberacoes, 30000);
+  // Mesmo problema documentado em iniciarRealtimeSolicitacoes: o canal pode
+  // cair silenciosamente se a aba do admin ficar aberta e em primeiro plano
+  // por muito tempo sem nenhuma troca de visibilidade. Reconecta do zero a
+  // cada 90s, incondicionalmente (guard acima garante que isso é registrado
+  // uma única vez, nunca duplicado a cada reconexão).
+  setInterval(()=>{ if(ME && isAdmin()) iniciarRealtimeLiberacoes(); }, 90000);
 }
 
 /* ═══════════ AUDITORIA ═══════════ */
