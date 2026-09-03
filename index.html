@@ -986,11 +986,11 @@ function iniciarRealtimeSolicitacoes(){
   SOLICITACOES_WATCHDOG_INICIADO = true;
   setInterval(()=>{ if(curPage==='home') renderAgendaDia(); }, 20000);
   // Quando a aba/PWA volta a ficar visível (celular saindo de segundo plano,
-  // tela desbloqueada), reconecta o canal do zero e busca os dados na hora —
+  // tela desbloqueada), reconecta os canais do zero e busca os dados na hora —
   // não espera o próximo tick do poll de 20s. Registrado uma única vez (guard
   // acima) pra não empilhar um listener novo a cada reconexão.
   document.addEventListener('visibilitychange', ()=>{
-    if(document.visibilityState==='visible' && ME){ iniciarRealtimeSolicitacoes(); renderAgendaDia(); }
+    if(document.visibilityState==='visible' && ME){ _reconectarRealtimeCrm(); renderAgendaDia(); }
   });
   // BUGFIX (relatado pelo usuário, 2026-09-02): "se fica um tempo aberto e cai
   // outra demanda, não atualiza sem F5". O reconnect acima só dispara numa
@@ -999,10 +999,29 @@ function iniciarRealtimeSolicitacoes(){
   // tela), o WebSocket pode cair silenciosamente sem NUNCA disparar
   // visibilitychange, e o canal fica morto até alguém dar F5 (o poll de 20s
   // continua rodando e mostraria dados frescos, mas o AVISO de chamado novo
-  // depende do evento do canal em si, que já não chega mais). Reconecta o
-  // canal do zero a cada 90s, incondicionalmente — garante que ele nunca
-  // fica morto por mais que isso, mesmo sem nenhuma troca de aba.
-  setInterval(()=>{ if(ME) iniciarRealtimeSolicitacoes(); }, 90000);
+  // depende do evento do canal em si, que já não chega mais). Reconecta a
+  // cada 90s, incondicionalmente — garante que nunca fica morto por mais que
+  // isso, mesmo sem nenhuma troca de aba.
+  setInterval(()=>{ if(ME) _reconectarRealtimeCrm(); }, 90000);
+}
+// BUGFIX (relatado pelo usuário, 2026-09-03): mesmo com o reconnect de 90s
+// acima, depois de MINIMIZAR a janela por um tempo (não só trocar de aba) e
+// esperar mais de 1 minuto após voltar, chamado novo continuava não
+// aparecendo sozinho. Recriar só o CANAL (sbCrm.removeChannel + .channel()
+// de novo) não bastava: o socket de baixo nível do supabase-js (o WebSocket
+// real por trás de TODOS os canais desse client) pode ficar "zumbi" — a lib
+// acha que está conectado, mas a conexão morreu de verdade — e recriar um
+// canal em cima de um socket zumbi não força reconexão nenhuma. Chamar
+// sbCrm.realtime.disconnect() derruba esse socket de vez, forçando um
+// WebSocket novo assim que o próximo canal for inscrito. Os dois canais do
+// Operacional (solicitações + liberações) compartilham o MESMO sbCrm, então
+// precisam reconectar JUNTOS aqui — se cada um tivesse seu próprio timer de
+// 90s desencontrado chamando disconnect(), um deles derrubaria o socket do
+// outro bem no meio da reconexão dele.
+function _reconectarRealtimeCrm(){
+  sbCrm.realtime.disconnect();
+  iniciarRealtimeSolicitacoes();
+  if(isAdmin()) iniciarRealtimeLiberacoes();
 }
 
 let curPage = 'home';
@@ -2175,12 +2194,10 @@ function iniciarRealtimeLiberacoes(){
   if(LIBERACOES_WATCHDOG_INICIADO) return;
   LIBERACOES_WATCHDOG_INICIADO = true;
   setInterval(atualizarBadgeLiberacoes, 30000);
-  // Mesmo problema documentado em iniciarRealtimeSolicitacoes: o canal pode
-  // cair silenciosamente se a aba do admin ficar aberta e em primeiro plano
-  // por muito tempo sem nenhuma troca de visibilidade. Reconecta do zero a
-  // cada 90s, incondicionalmente (guard acima garante que isso é registrado
-  // uma única vez, nunca duplicado a cada reconexão).
-  setInterval(()=>{ if(ME && isAdmin()) iniciarRealtimeLiberacoes(); }, 90000);
+  // O reconnect de socket (a cada 90s / ao voltar de minimizado) é feito de
+  // forma centralizada por _reconectarRealtimeCrm(), junto com o canal de
+  // solicitações — os dois compartilham o mesmo sbCrm, então precisam
+  // reconectar juntos. Ver o BUGFIX em iniciarRealtimeSolicitacoes().
 }
 
 /* ═══════════ AUDITORIA ═══════════ */
