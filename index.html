@@ -601,6 +601,21 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   </div>
 </div>
 
+<!-- ═══ MODAL: DIRECIONAR CHAMADO PRA ALGUÉM ═══ -->
+<div class="ov" id="ov-direcionar">
+  <div class="ov-box">
+    <div class="ov-head"><div class="ov-title">Direcionar chamado</div><button class="icon-btn" onclick="closeOV('ov-direcionar')">✕</button></div>
+    <div class="ov-body">
+      <input type="hidden" id="dir-sol-id">
+      <div style="color:var(--muted);font-size:13px;margin-bottom:10px" id="dir-titulo-sub"></div>
+      <div class="fld"><label>Direcionar para</label>
+        <select id="dir-usuario" style="width:100%"></select>
+      </div>
+    </div>
+    <div class="ov-foot"><button class="btn btn-muted" onclick="closeOV('ov-direcionar')">Cancelar</button><button class="btn btn-primary" onclick="confirmarDirecionar()">Direcionar</button></div>
+  </div>
+</div>
+
 <!-- ═══ MODAL: LINHA DO TEMPO ═══ -->
 <div class="ov" id="ov-timeline">
   <div class="ov-box">
@@ -1467,6 +1482,45 @@ async function assumirSolicitacao(id){
   toast('Chamado assumido — clique em Retomar pra iniciar o timer.');
   renderAgendaDia();
 }
+// Direcionar: qualquer usuário pode mandar um chamado (mesmo um que já estava
+// aberto antes dessa opção existir) direto pra outra pessoa do mesmo setor de
+// destino — não precisa ser admin nem o responsável atual. Reusa o mesmo
+// mecanismo do "Assumir" (cria a execução pausada pro destinatário, pra ele
+// só começar a contar tempo quando clicar Retomar de propósito).
+window.abrirDirecionarSolicitacao=async(id)=>{
+  const { data:s } = await Q.from('solicitacoes').select('id,assunto,setor_destino_id').eq('id',id).maybeSingle();
+  if(!s) return;
+  document.getElementById('dir-sol-id').value=id;
+  document.getElementById('dir-titulo-sub').textContent=s.assunto||'';
+  const { data:usuarios } = await Q.from('usuarios').select('id,nome').eq('ativo',true).eq('setor_id',s.setor_destino_id).order('nome');
+  document.getElementById('dir-usuario').innerHTML = (usuarios||[]).map(u=>`<option value="${u.id}">${u.nome}</option>`).join('') || '<option value="">Nenhum usuário ativo nesse setor</option>';
+  document.getElementById('ov-direcionar').classList.add('on');
+};
+window.confirmarDirecionar=async()=>{
+  const id = document.getElementById('dir-sol-id').value;
+  const usuarioId = document.getElementById('dir-usuario').value;
+  if(!usuarioId){ toast('Selecione um responsável.'); return; }
+  const { data:destino } = await Q.from('usuarios').select('nome').eq('id',usuarioId).maybeSingle();
+  const { error } = await Q.from('solicitacoes').update({responsavel_id:usuarioId, status:'em_andamento', iniciado_em:new Date().toISOString()}).eq('id',id);
+  if(error){ toast('Erro: '+error.message); return; }
+  const { data: jaExiste } = await Q.from('execucoes').select('id').eq('solicitacao_id',id).maybeSingle();
+  if(!jaExiste){
+    const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
+    const { data: novaExec, error: errExec } = await Q.from('execucoes').insert({
+      usuario_id: usuarioId, tipo:'extraordinario', solicitacao_id: id, status:'pausado',
+      extra_o_que: s.assunto, extra_por_que: 'Chamado direcionado por '+(ME.nome||'—'),
+      extra_quem_solicitou: s.solicitante_nome_externo||'—',
+      extra_setor_origem: s.origem?.nome||'—'
+    }).select('id').single();
+    if(!errExec && novaExec){
+      await Q.from('pausas').insert({execucao_id:novaExec.id, motivo:'Outro', observacao:'Aguardando início — clique em Retomar pra começar a contar o tempo'});
+    }
+  }
+  registrarAuditoria('solicitacoes', id, null, 'direcionar', {para_usuario_id:usuarioId, para_nome:destino?.nome||null});
+  closeOV('ov-direcionar');
+  toast('Chamado direcionado para '+(destino?.nome||'usuário')+'.');
+  renderAgendaDia();
+};
 function renderLinhaSolicitacao(s, exec){
   const horaAbertura = new Date(s.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const assumida = s.responsavel_id===ME.id;
@@ -1479,6 +1533,7 @@ function renderLinhaSolicitacao(s, exec){
   } else {
     acaoCel = `<button class="btn btn-muted" style="padding:6px 10px" onclick="assumirSolicitacao('${s.id}')">Assumir</button>`;
   }
+  acaoCel += ` <button class="btn btn-muted" style="padding:6px 10px" onclick="abrirDirecionarSolicitacao('${s.id}')">Direcionar</button>`;
   return `<tr>
     <td>${horaAbertura}</td>
     <td>🎫 <b>${numFmtSolicitacao(s.numero)}</b> — ${s.assunto} <span style="color:var(--muted);font-size:11px">(${s.destino?.nome||'—'})</span></td>
