@@ -522,14 +522,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         </select>
       </div>
       <div class="fld"><label>Setor</label><select id="us-setor" style="width:100%"><option value="">—</option></select></div>
-      <div class="fld"><label>Login já existe em</label>
-        <select id="us-origem" style="width:100%"><option value="crm">CRM</option><option value="portal">Portal</option><option value="novo">Criar novo login (CRM)</option></select>
-      </div>
-      <div class="fld hidden" id="us-senha-wrap"><label>Senha temporária (login novo)</label><input id="us-senha" type="text" placeholder="deixe em branco para gerar"></div>
       <div class="fld" id="us-senha-local-wrap">
-        <label>Senha própria do Operacional (opcional)</label>
-        <input id="us-senha-local" type="text" placeholder="Deixe em branco para não mexer">
-        <p style="margin-top:4px;font-size:11.5px;color:var(--muted)">Preencher aqui faz essa pessoa passar a entrar com e-mail/senha SÓ deste app, sem depender do login do CRM/Portal — útil se o e-mail dela colidir com outra conta. Uma vez definida, essa senha vale a partir do próximo login.</p>
+        <label id="us-senha-local-label">Senha própria do Operacional</label>
+        <input id="us-senha-local" type="text" placeholder="Mínimo 6 caracteres">
+        <p style="margin-top:4px;font-size:11.5px;color:var(--muted)">Login próprio deste app, independente do CRM/Portal.</p>
       </div>
       <div class="fld"><label>Custo por hora (R$, opcional — só admin vê)</label><input id="us-custo-hora" type="number" step="0.01" placeholder="Ex: 37.50"></div>
     </div>
@@ -653,7 +649,6 @@ const PORTAL_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 
 const { createClient } = supabase;
 const sbCrm = createClient(CRM_URL, CRM_KEY);
-const sbPortal = createClient(PORTAL_URL, PORTAL_KEY);
 const Q = sbCrm.schema('produtividade'); // dados do app ficam aqui, acesso via anon (mesmo padrão do schema "qualidade")
 
 /* ═══════════ ÍCONES MINIMALISTAS (SVG, sem emoji) ═══════════ */
@@ -725,30 +720,23 @@ async function fazerLogin(){
   if(!email || !senha){ errEl.textContent = 'Preencha e-mail e senha.'; return; }
   document.getElementById('lg-btn').textContent = 'Entrando...';
 
-  // Login PRÓPRIO do Operacional (independente do Auth do CRM/Portal), opt-in
-  // por pessoa (produtividade.login_local) — pedido do usuário pra poder
-  // trocar e-mail/senha sem esbarrar na restrição de e-mail único do Auth
-  // compartilhado. Se a conta ainda não foi migrada (NAO_MIGRADO), cai pro
-  // fluxo antigo normalmente — ninguém mais é afetado por essa mudança.
+  // Login PRÓPRIO do Operacional (produtividade.login_local) — SEGURANÇA
+  // (2026-09-04, pedido urgente do usuário): antes, quem ainda não tinha sido
+  // migrado pra login_local (NAO_MIGRADO) caía pro Auth compartilhado do
+  // CRM/Portal — ou seja, qualquer login válido de qualquer um dos dois
+  // entrava aqui também. Isso foi desligado: agora só entra quem já tem senha
+  // própria deste app. Quem ainda não migrou precisa que um admin defina uma
+  // senha em Administração > Usuários > Redefinir senha (isso já migra a
+  // pessoa pra login_local automaticamente, ver resetarSenhaUsuario()).
   const { data: rowLocal, error: errLocal } = await Q.rpc('login_local_autenticar', {p_email:email, p_senha:senha});
   if(!errLocal){
     AUTH_SOURCE = 'local';
     return depoisDoLoginLocal(Array.isArray(rowLocal)?rowLocal[0]:rowLocal);
   }
-  if(errLocal.message !== 'NAO_MIGRADO'){
-    document.getElementById('lg-btn').textContent = 'Entrar';
-    errEl.textContent = errLocal.message || 'E-mail ou senha inválidos.';
-    return;
-  }
-
-  let ok = await sbCrm.auth.signInWithPassword({email,password:senha});
-  if(!ok.error){ AUTH_SOURCE = 'crm'; return depoisDoLogin(email, ok.data.user.id); }
-
-  let ok2 = await sbPortal.auth.signInWithPassword({email,password:senha});
-  if(!ok2.error){ AUTH_SOURCE = 'portal'; return depoisDoLogin(email, ok2.data.user.id); }
-
   document.getElementById('lg-btn').textContent = 'Entrar';
-  errEl.textContent = 'E-mail ou senha inválidos.';
+  errEl.textContent = errLocal.message==='NAO_MIGRADO'
+    ? 'Sua conta ainda não tem senha própria deste app. Peça a um administrador pra definir uma em Administração > Usuários.'
+    : (errLocal.message || 'E-mail ou senha inválidos.');
 }
 
 async function depoisDoLoginLocal(row){
@@ -763,28 +751,6 @@ async function depoisDoLoginLocal(row){
   ME = data;
   localStorage.setItem('op_auth_source', 'local');
   localStorage.setItem('op_local_usuario_id', ME.id);
-  await iniciarApp();
-}
-
-// BUGFIX (2026-08-27): antes buscava o perfil por e-mail (ilike('email',email))
-// — funcionava só enquanto produtividade.usuarios.email ficasse IDENTICO ao
-// e-mail real de login. Editar o e-mail em Administração > Usuários (mesmo já
-// corrigido pra sincronizar o Auth) ou qualquer drift entre os dois quebrava o
-// login de quem tinha acabado de logar corretamente (achado no caso do
-// Deivid). Agora busca pelo vinculo estavel auth_user_id, que e o que o login
-// de verdade usa — nao depende do texto do e-mail bater.
-async function depoisDoLogin(email, authUserId){
-  const { data, error } = await Q.from('usuarios').select('*').eq('auth_user_id', authUserId).maybeSingle();
-  if(error || !data || !data.ativo){
-    document.getElementById('login-error').textContent = 'Você não tem acesso a este app. Fale com o administrador.';
-    document.getElementById('lg-btn').textContent = 'Entrar';
-    await sbCrm.auth.signOut(); await sbPortal.auth.signOut();
-    return;
-  }
-  const pode = await checarHorarioEntrada(data, {tipo:'auth', authSource:AUTH_SOURCE});
-  if(!pode){ document.getElementById('lg-btn').textContent = 'Entrar'; return; }
-  ME = data;
-  localStorage.setItem('op_auth_source', AUTH_SOURCE);
   await iniciarApp();
 }
 
@@ -896,29 +862,17 @@ function cancelarBloqueioEntrada(mantendoDados){
   document.getElementById('lg-btn').textContent = 'Entrar';
   if(!mantendoDados){
     BLOQUEIO_ME = null; BLOQUEIO_RESUME = null;
-    sbCrm.auth.signOut(); sbPortal.auth.signOut();
     document.getElementById('lg-senha').value = '';
   }
 }
 
 async function tentarSessaoSalva(){
   const src = localStorage.getItem('op_auth_source');
-  if(!src) return false;
-  if(src==='local'){
-    const usuarioId = localStorage.getItem('op_local_usuario_id');
-    if(!usuarioId) return false;
-    AUTH_SOURCE = 'local';
-    const { data } = await Q.from('usuarios').select('*').eq('id', usuarioId).maybeSingle();
-    if(!data || !data.ativo) return false;
-    ME = data;
-    await iniciarApp();
-    return true;
-  }
-  const cli = src==='crm' ? sbCrm : sbPortal;
-  const { data:{ session } } = await cli.auth.getSession();
-  if(!session) return false;
-  AUTH_SOURCE = src;
-  const { data } = await Q.from('usuarios').select('*').eq('auth_user_id', session.user.id).maybeSingle();
+  if(src!=='local') return false;
+  const usuarioId = localStorage.getItem('op_local_usuario_id');
+  if(!usuarioId) return false;
+  AUTH_SOURCE = 'local';
+  const { data } = await Q.from('usuarios').select('*').eq('id', usuarioId).maybeSingle();
   if(!data || !data.ativo) return false;
   ME = data;
   await iniciarApp();
@@ -926,7 +880,6 @@ async function tentarSessaoSalva(){
 }
 
 async function sair(){
-  await sbCrm.auth.signOut(); await sbPortal.auth.signOut();
   localStorage.removeItem('op_auth_source');
   localStorage.removeItem('op_local_usuario_id');
   location.reload();
@@ -2386,18 +2339,8 @@ function abrirModalUsuario(id){
   document.getElementById('us-setor').innerHTML = '<option value="">—</option>'+SETORES.map(s=>`<option value="${s.id}" ${u?.setor_id===s.id?'selected':''}>${s.nome}</option>`).join('');
   document.getElementById('us-custo-hora').value = u?.custo_hora ?? '';
   document.getElementById('us-senha-local').value = '';
-  document.getElementById('us-senha-local-wrap').classList.toggle('hidden', !u);
-  const origemWrap = document.getElementById('us-origem').closest('.fld');
-  if(u){
-    // Editando alguém que já existe: origem/senha de login não fazem sentido aqui.
-    origemWrap.classList.add('hidden');
-    document.getElementById('us-senha-wrap').classList.add('hidden');
-  } else {
-    origemWrap.classList.remove('hidden');
-    document.getElementById('us-origem').value='crm';
-    document.getElementById('us-senha-wrap').classList.add('hidden');
-    document.getElementById('us-origem').onchange = function(){ document.getElementById('us-senha-wrap').classList.toggle('hidden', this.value!=='novo'); };
-  }
+  document.getElementById('us-senha-local-label').textContent = u ? 'Senha própria do Operacional (opcional)' : 'Senha própria do Operacional';
+  document.getElementById('us-senha-local').placeholder = u ? 'Deixe em branco para não mexer' : 'Mínimo 6 caracteres';
   document.getElementById('ov-usuario').classList.add('on');
 }
 async function salvarUsuario(){
@@ -2457,30 +2400,15 @@ async function salvarUsuario(){
     return;
   }
 
-  const origem = document.getElementById('us-origem').value;
-  let auth_source = origem==='novo' ? 'crm' : origem;
-  let auth_user_id = null;
-
-  if(origem==='novo'){
-    const senha = document.getElementById('us-senha').value.trim() || (Math.random().toString(36).slice(-10)+'A1!');
-    const { data:{ session } } = await sbCrm.auth.getSession();
-    try{
-      const resp = await fetch(CRM_URL+'/functions/v1/create-user',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','apikey':CRM_KEY,'Authorization':'Bearer '+(session?.access_token||CRM_KEY)},
-        body: JSON.stringify({name:nome, email, password:senha, role:'vendedor', caller_usuario_id: ME.id})
-      });
-      const json = await resp.json();
-      if(json.error) throw new Error(json.error);
-      auth_user_id = json.user_id || null;
-      toast('Login criado. Senha temporária: '+senha);
-    }catch(e){ toast('Erro ao criar login: '+e.message); return; }
-  }
-
-  const { data:novo, error } = await Q.from('usuarios').insert({nome, email, cargo, setor_id, custo_hora, auth_source, auth_user_id, ativo:true}).select().single();
+  // Novo usuário: login sempre próprio do Operacional (produtividade.login_local),
+  // não mais via Auth compartilhado do CRM/Portal (2026-09-04, separação de login).
+  if(!senhaLocal){ toast('Defina uma senha (mínimo 6 caracteres) pro novo usuário.'); return; }
+  const { data:novo, error } = await Q.from('usuarios').insert({nome, email, cargo, setor_id, custo_hora, ativo:true}).select().single();
   if(error){ toast('Erro: '+error.message); return; }
+  const { error: errLocal } = await Q.rpc('definir_senha_local', { p_caller_id: ME.id, p_alvo_id: novo.id, p_senha: senhaLocal });
+  if(errLocal){ toast('Usuário criado, mas a senha NÃO foi definida: '+errLocal.message, 'err'); closeOV('ov-usuario'); renderAdmUsuarios(); return; }
   registrarAuditoria('usuarios', novo?.id, nome, 'criar', null);
-  closeOV('ov-usuario'); renderAdmUsuarios(); toast('Usuário salvo.');
+  closeOV('ov-usuario'); renderAdmUsuarios(); toast('Usuário criado — já pode entrar com a senha definida.');
 }
 
 async function renderAdmSetores(){
