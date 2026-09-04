@@ -1492,8 +1492,11 @@ window.abrirDirecionarSolicitacao=async(id)=>{
   if(!s) return;
   document.getElementById('dir-sol-id').value=id;
   document.getElementById('dir-titulo-sub').textContent=s.assunto||'';
-  const { data:usuarios } = await Q.from('usuarios').select('id,nome').eq('ativo',true).eq('setor_id',s.setor_destino_id).order('nome');
-  document.getElementById('dir-usuario').innerHTML = (usuarios||[]).map(u=>`<option value="${u.id}">${u.nome}</option>`).join('') || '<option value="">Nenhum usuário ativo nesse setor</option>';
+  // Pedido do usuário (2026-09-04): mostrar TODOS os usuários ativos, de
+  // qualquer setor — não só do setor de destino do chamado.
+  const { data:usuarios } = await Q.from('usuarios').select('id,nome,setor_id').eq('ativo',true).order('nome');
+  const setorNomeDir={}; SETORES.forEach(st=>setorNomeDir[st.id]=st.nome);
+  document.getElementById('dir-usuario').innerHTML = (usuarios||[]).map(u=>`<option value="${u.id}">${u.nome}${u.setor_id&&setorNomeDir[u.setor_id]?' — '+setorNomeDir[u.setor_id]:''}</option>`).join('') || '<option value="">Nenhum usuário ativo</option>';
   document.getElementById('ov-direcionar').classList.add('on');
 };
 window.confirmarDirecionar=async()=>{
