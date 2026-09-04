@@ -1506,7 +1506,7 @@ window.confirmarDirecionar=async()=>{
   const { data:destino } = await Q.from('usuarios').select('nome').eq('id',usuarioId).maybeSingle();
   const { error } = await Q.from('solicitacoes').update({responsavel_id:usuarioId, status:'em_andamento', iniciado_em:new Date().toISOString()}).eq('id',id);
   if(error){ toast('Erro: '+error.message); return; }
-  const { data: jaExiste } = await Q.from('execucoes').select('id').eq('solicitacao_id',id).maybeSingle();
+  const { data: jaExiste } = await Q.from('execucoes').select('id,usuario_id,status').eq('solicitacao_id',id).maybeSingle();
   if(!jaExiste){
     const { data: s } = await Q.from('solicitacoes').select('*, origem:setores!solicitacoes_setor_origem_id_fkey(nome)').eq('id',id).single();
     const { data: novaExec, error: errExec } = await Q.from('execucoes').insert({
@@ -1517,6 +1517,16 @@ window.confirmarDirecionar=async()=>{
     }).select('id').single();
     if(!errExec && novaExec){
       await Q.from('pausas').insert({execucao_id:novaExec.id, motivo:'Outro', observacao:'Aguardando início — clique em Retomar pra começar a contar o tempo'});
+    }
+  } else if(jaExiste.usuario_id!==usuarioId){
+    // BUGFIX (2026-09-04): já existia uma execução (o timer) pra esse chamado,
+    // mas atrelada a quem tinha direcionado antes — o timer ficava "preso" com
+    // quem passou o chamado pra frente em vez de ir junto com ele. Agora
+    // transfere a execução pro novo responsável; se estava em andamento, pausa
+    // (mesmo mecanismo do "Pausar") pra não ficar contando tempo pra pessoa errada.
+    await Q.from('execucoes').update({usuario_id:usuarioId, status:'pausado'}).eq('id',jaExiste.id);
+    if(jaExiste.status==='em_andamento'){
+      await Q.from('pausas').insert({execucao_id:jaExiste.id, motivo:'Outro', observacao:'Direcionado para outra pessoa — aguardando ela clicar em Retomar'});
     }
   }
   registrarAuditoria('solicitacoes', id, null, 'direcionar', {para_usuario_id:usuarioId, para_nome:destino?.nome||null});
